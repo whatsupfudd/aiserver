@@ -1,8 +1,11 @@
 module Service.Types where
 
+import qualified Data.ByteString as Bs
+import Data.Int (Int32)
 import Data.UUID (UUID)
 import Data.Text (Text)
 import Data.Time.Clock (UTCTime)
+import qualified Data.Vector as Vc
 
 import GHC.Generics (Generic)
 
@@ -10,17 +13,24 @@ import qualified Data.Aeson as Ae
 
 
 data TopDescription = TopDescription {
-    id :: UUID
+    id :: Int32
+    , eid :: UUID
     , name :: Text
     , description :: Text
+    , functions :: Vc.Vector FunctionDescription
   }
   deriving (Show)
 
 
+-- uid eid service_fk label pricingRule privilegeRule endpoint category
 data FunctionDescription = FunctionDescription {
-    id :: UUID
-    , name :: Text
-    , description :: Text
+    id :: Int32
+    , eid :: UUID
+    , label :: Text
+    , pricingRule :: Text
+    , privilegeRule :: Text
+    , endpoint :: Text
+    , category :: Vc.Vector Text
   }
   deriving (Show)
 
@@ -70,7 +80,8 @@ data UserAccount = UserAccount {
   deriving (Show)
 
 
-newtype ServiceContext = ServiceContext {
+data ServiceContext = ServiceContext {
     id :: UUID
+    , apiKey :: Bs.ByteString
   }
   deriving (Show)

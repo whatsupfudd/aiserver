@@ -41,6 +41,8 @@ import qualified Assets.Types as S3
 import qualified Assets.Storage as S3
 import Assets.Types (S3Config (..))
 import qualified Options.Runtime as Rt
+import qualified Service.DbOps as Srv
+import qualified Service.Types (TopDescription (..))
 import Api.Types
 
 type MainApi = ToServantApi TopRoutes
@@ -76,24 +78,43 @@ launchServant rtOpts pgPool = do
       Nothing -> linkUp $ id :| [ logStdout ]
       Just aPolicy -> linkUp $ id :| [ logStdout, setCorsPolicy aPolicy ]
 
-    s3Storage = S3.makeS3Conn <$> rtOpts.s3store
-    -- TODO: add errorMw @JSON @'["message", "status"] when Servant.Errors is compatible with aeson-2.
-    -- TMP: The global state is not useful here, it needs to be managed at the top level in its own thread.
-    appEnv = AppEnv { config_Ctxt = rtOpts
-            , jwt_Ctxt = jwtSettings
-            , pgPool_Ctxt = pgPool
-            , s3Storage_Ctxt = s3Storage
-          }
-    -- TODO: add state to the handler if running with RWST.
-    server = hoistServerWithContext serverApiProxy apiContextP (apiAsHandler appEnv) serverApiT
 
-  case s3Storage of
-    Nothing -> putStrLn "@[serveApi] no s3 storage configured."
-    Just aConn -> do
-      putStrLn $ "@[serveApi] using s3, host: " <> maybe "<error!>" (unpack . S3.host) rtOpts.s3store <> ", bucket: " <> show aConn.bucketCn
+  eiServiceDefs <- Srv.getServiceDefs pgPool
+  case eiServiceDefs of
+    Left errMsg -> error $ "@[launchServant] no service, err: " <> errMsg
+    Right serviceDefs ->
+      -- TODO: add errorMw @JSON @'["message", "status"] when Servant.Errors is compatible with aeson-2.
+      let
+        appEnv = AppEnv { config_Ctxt = rtOpts
+              , jwt_Ctxt = jwtSettings
+              , pgPool_Ctxt = pgPool
+              , s3Storage_Ctxt = s3Storage
+              , serviceDefs_Ctxt = serviceDefs
+            }
+        -- TODO: add state to the handler if running with RWST.
+        s3Storage = S3.makeS3Conn <$> rtOpts.s3store
+        server = hoistServerWithContext serverApiProxy apiContextP (apiAsHandler appEnv) serverApiT
+      in do
+      putStrLn $ "@[launchServant] got service definitions: " <> show serviceDefs
+      case Mp.lookup "elevenlabs" serviceDefs of
+        Nothing -> putStrLn "@[launchServant] no elevenlabs."
+        Just acctInfo -> do
+          putStrLn $ "@[launchServant] got service id: " <> show acctInfo.id
+          eiServiceAccess <- Srv.getServiceAccess pgPool acctInfo.id "-system"
+          case eiServiceAccess of
+            Left errMsg -> error $ "@[launchServant] getServiceAccess err: " <> errMsg
+            Right mbAcctAccess -> do
+              case mbAcctAccess of
+                Nothing -> putStrLn $ "@[launchServant] no access."
+                Just (idlabel, secret) ->
+                  putStrLn $ "@[launchServant] got service access: " <> show idlabel
+      case s3Storage of
+        Nothing -> putStrLn "@[serveApi] no s3 storage configured."
+        Just aConn -> do
+          putStrLn $ "@[serveApi] using s3, host: " <> maybe "<error!>" (unpack . S3.host) rtOpts.s3store <> ", bucket: " <> show aConn.bucketCn
 
-  putStrLn $ "@[serveApi] listening on port " <> show rtOpts.serverPort <> "."
-  pure $ middlewares $ serveWithContext serverApiProxy apiContext server
+      putStrLn $ "@[serveApi] listening on port " <> show rtOpts.serverPort <> "."
+      pure $ middlewares $ serveWithContext serverApiProxy apiContext server
 
 
 -- Root handling definition:

@@ -50,6 +50,17 @@ library
       Routing.ClientR
       Routing.TopDefs
       Routing.TopHandlers
+      Service.Claude
+      Service.DbOps
+      Service.DeepSeek
+      Service.ElevenLabs
+      Service.Flux
+      Service.Gemini
+      Service.Grok
+      Service.Kimi
+      Service.Llama
+      Service.OpenAI
+      Service.Qwen
       Service.Types
   other-modules:
       Paths_aiserver

@@ -14,6 +14,7 @@ import Control.Monad.IO.Class (MonadIO)
 import Control.Monad.Reader (MonadReader, ReaderT)
 
 import Data.Int (Int32)
+import qualified Data.Map as Mp
 import Data.Text (Text)
 import Data.Time (UTCTime, getCurrentTime)
 import Data.Text.Encoding (encodeUtf8)
@@ -42,6 +43,8 @@ import Hasql.Pool (Pool)
 
 import qualified Options.Runtime as Rt
 import qualified Assets.Types as S3
+import qualified Service.Types as Srv
+
 
 -- Client Data going in / out.
 data ClientInfo = ClientInfo {
@@ -97,6 +100,7 @@ data AppEnv = AppEnv {
     , jwt_Ctxt :: JWTSettings
     , pgPool_Ctxt :: Pool
     , s3Storage_Ctxt :: Maybe S3.S3Conn
+    , serviceDefs_Ctxt :: Mp.Map Text Srv.TopDescription
   }
 
 
