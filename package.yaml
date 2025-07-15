@@ -1,0 +1,120 @@
+name:                aiserver
+version:             0.1.0.0
+github:              "hugdro/aiserver"
+license:             BSD3
+author:              "Hugo DesRosiers"
+maintainer:          "hugo.desrosiers@boardingcities.com"
+copyright:           "None."
+
+extra-source-files:
+- README.md
+- CHANGELOG.md
+
+# Metadata used when publishing your package
+# synopsis:            Short description of your package
+# category:            software.
+
+# To avoid duplicated efforts in documentation and dealing with the
+# complications of embedding Haddock markup inside cabal files, it is
+# common to point users to the README.md file.
+description:         Please see the README on GitHub at <https://github.com/hugdro/aiserver#readme>
+
+dependencies:
+  - aeson
+  - base >= 4.7 && < 5
+  - bytestring
+  - directory
+  - text
+  - time
+  - vector
+  - containers
+  - uuid
+  # For YAML (config file):
+  - yaml
+  - directory
+  - filepath
+  # For Git (version):
+  - gitrev
+  # For options:
+  - optparse-applicative
+  - unix
+  # For Cont(T):
+  - mtl
+  # For SQL:
+  - postgresql-binary
+  - hasql
+  - hasql-th
+  - hasql-pool
+  # For Cors:
+  - case-insensitive
+  # For HTTP server:
+  - http-types
+  - http-media
+  - wai
+  - wai-cors
+  - wai-extra
+  - warp
+  # For HTTP client:
+  - http-client
+  # For JWT crypto support:
+  - jose
+  - lens
+  # For Servant:
+  - servant
+  - servant-server
+  - servant-client
+  - servant-auth
+  - servant-auth-server
+  - servant-multipart
+  - streaming-commons
+  # For catching errors from Servant:
+  - exceptions
+  # For Minio (S3):
+  # For MinIO:
+  - minio-hs
+  - scientific
+  - conduit
+  - unliftio
+
+
+default-extensions:
+- OverloadedStrings
+- DuplicateRecordFields
+- OverloadedRecordDot
+
+ghc-options:
+# - -Wall
+# - -Wunused-matches
+- -Wcompat
+- -Widentities
+- -Wincomplete-record-updates
+- -Wincomplete-uni-patterns
+#- -Wmissing-export-lists
+- -Wmissing-home-modules
+- -Wpartial-fields
+- -Wredundant-constraints
+
+library:
+  source-dirs: src
+
+executables:
+  aiserver:
+    main:                Main.hs
+    source-dirs:         app
+    ghc-options:
+    - -threaded
+    - -rtsopts
+    - -with-rtsopts=-N
+    dependencies:
+    - aiserver
+
+tests:
+  aiserver-test:
+    main:                Spec.hs
+    source-dirs:         test
+    ghc-options:
+    - -threaded
+    - -rtsopts
+    - -with-rtsopts=-N
+    dependencies:
+    - aiserver
