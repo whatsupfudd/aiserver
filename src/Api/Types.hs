@@ -13,15 +13,15 @@ import Control.Monad.Except (ExceptT, withExceptT, MonadError)
 import Control.Monad.IO.Class (MonadIO)
 import Control.Monad.Reader (MonadReader, ReaderT)
 
+import qualified Data.ByteString as Bs
+import qualified Data.ByteString.Lazy as Lbs
 import Data.Int (Int32)
 import qualified Data.Map as Mp
 import Data.Text (Text)
 import Data.Time (UTCTime, getCurrentTime)
 import Data.Text.Encoding (encodeUtf8)
--- import Data.ByteString (ByteString)
-import qualified Data.ByteString as Bs
-import qualified Data.ByteString.Lazy as Lbs
--- import Data.Set (Set)
+import Data.UUID (UUID)
+import Data.UUID.V4 (nextRandom)
 
 import GHC.Generics
 
@@ -31,7 +31,7 @@ import Network.HTTP.Media ((//), (/:))
 
 import Servant.Auth.Server (Auth, AuthResult
           , JWT, JWTSettings, FromJWT, ToJWT
-          , BasicAuth, BasicAuthData, BasicAuthCfg, FromBasicAuthData (..)
+          -- , BasicAuth, BasicAuthData, BasicAuthCfg, FromBasicAuthData (..)
         )
 import Servant.Server
 import Servant.Server.Generic (AsServerT, genericServerT)
@@ -48,7 +48,8 @@ import qualified Service.Types as Srv
 
 -- Client Data going in / out.
 data ClientInfo = ClientInfo {
-    sessionID :: Int32
+    uid :: Int32
+    , eid :: UUID
     , expiry :: UTCTime
   }
   deriving stock (Show, Generic)
@@ -56,28 +57,32 @@ data ClientInfo = ClientInfo {
 
 instance ToJWT ClientInfo
 instance FromJWT ClientInfo
+{-
 instance FromBasicAuthData ClientInfo where
   fromBasicAuthData authData authChecker = authChecker authData
-
+-}
 
 fakeClientInfo :: IO ClientInfo
 fakeClientInfo = do
   now <- getCurrentTime
+  uuid <- nextRandom
   pure $ ClientInfo {
-      sessionID = 1
+      uid = 1
+      , eid = uuid
       , expiry = now
     }
 
 
 data SessionItems = SessionItems {
-    sessionCtxt :: ClientInfo
+    clientInfo :: ClientInfo
+    , connID :: Int32
     , jwt :: Text
   }
   deriving stock (Show, Generic)
   deriving anyclass (ToJSON)
 
 
-type instance BasicAuthCfg = BasicAuthData -> IO (AuthResult ClientInfo)
+-- type instance BasicAuthCfg = BasicAuthData -> IO (AuthResult ClientInfo)
 
 
 data HTML = HTML

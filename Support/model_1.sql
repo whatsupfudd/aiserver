@@ -10,10 +10,26 @@ create table if not exists account (
 create table if not exists authentication (
   uid serial primary key
   , account_fk int not null references account(uid)
+  , method int not null default 1     -- 1: md5.
   , secret varchar(255) not null
   , status int not null default 1     -- 1: active, 2: disabled, 3: deleted
   , created_at timestamp not null default now()
 );
+
+create table if not exists cconnection (
+  uid serial primary key
+  , account_fk int not null references account(uid)
+  , created_at timestamp not null default now()
+  , token text not null
+);
+
+
+create table if not exists ccancel (
+  connection_fk int not null references cconnection(uid)
+  , created_at timestamp not null default now()
+  , reason text not null
+);
+
 
 -- Engaging operations on the services:
 create table if not exists crequest (
@@ -192,7 +208,7 @@ create table if not exists servfunction (
   , status int not null default 1     -- 1: active, 2: disabled, 3: retired.
 );
 
-
+-- Account information supplied by the service provider:
 create table if not exists servaccount (
   uid serial primary key
   , service_fk int not null references aiservice(uid)
@@ -202,6 +218,7 @@ create table if not exists servaccount (
   , status int not null default 1     -- 1: active, 2: disabled, 3: retired.
 );
 
+-- Authentication supplied by the service provider:
 create table if not exists servAuth (
   servaccount_fk int not null references servaccount(uid)
   , status int not null default 1     -- 1: active, 2: disabled, 3: retired.

@@ -20,6 +20,7 @@ import Api.Types (SessionItems)
 
 data LoginResult =
   ErrorLR String
+  | UnauthorizedLR String
   | AuthenticatedLR SessionItems
   deriving stock Generic
   deriving anyclass (Ae.ToJSON)
@@ -39,21 +40,21 @@ data ClientServiceDescriptor = ClientServiceDescriptor {
   } deriving (Show, Eq, Generic, Ae.FromJSON, Ae.ToJSON)
 
 
-data ServiceResponse = ServiceResponse {
+data InvokeResponse = InvokeResponse { 
     requestId :: UUID
-  , result    :: Ae.Value
-  , created   :: UTCTime
-  , status    :: Text
-  } deriving (Show, Eq, Generic, Ae.FromJSON, Ae.ToJSON)
+  , contextID :: UUID
+  , status :: Text
+  , result :: Ae.Value
+  } deriving (Show, Eq, Generic, Ae.ToJSON)
 
 
-fakeServiceResponse :: Ae.Value -> Text -> IO ServiceResponse
+fakeServiceResponse :: Ae.Value -> Text -> IO InvokeResponse
 fakeServiceResponse result status = do
   moment <- getCurrentTime
   newUuid <- nextRandom
-  pure $ ServiceResponse {
+  pure $ InvokeResponse {
         requestId = newUuid
+        , contextID = newUuid
         , result = result
-        , created = moment
         , status = status
       }

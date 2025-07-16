@@ -12,7 +12,8 @@ import Data.UUID (UUID)
 import GHC.Generics (Generic)
 
 import Servant.API.Generic
-import Servant.API (JSON, PlainText, ReqBody, Get, Post, Delete, OctetStream, (:>), Capture, QueryParam', Optional)
+import Servant.API (JSON, PlainText, ReqBody, Get, Post, Delete, OctetStream
+          , (:>), Capture, QueryParam,QueryParam', Optional)
 import Servant.Auth.Server (Auth, JWT, BasicAuth)
 
 import Api.Types (ClientInfo, Html)
@@ -54,13 +55,15 @@ newtype RepeatRoutes route = RepeatRoutes {
   }
   deriving (Generic)
 
-newtype InvokeRoutes route = InvokeRoutes {
-  invokeService :: route :- ReqBody '[JSON] Rq.ServiceRequest :> Post '[JSON] Rr.ServiceResponse
+data InvokeRoutes route = InvokeRoutes {
+  getResource :: route :- "resource" :> ReqBody '[JSON] Rq.ResourceRequest :> Post '[JSON] Rr.InvokeResponse
+  , fetchResult :: route :- "fetch" :> QueryParam"tid" UUID :> QueryParam' '[Optional] "mode" Text :> Get '[JSON] Rr.InvokeResponse
+  , invokeService :: route :- ReqBody '[JSON] Rq.InvokeRequest :> Post '[JSON] Rr.InvokeResponse
   }
   deriving (Generic)
 
 newtype RetrieveRoutes route = RetrieveRoutes {
-  retrieve :: route :- Capture "requestId" UUID :> Get '[JSON] Rr.ServiceResponse
+  retrieve :: route :- Capture "requestId" UUID :> Get '[JSON] Rr.InvokeResponse
   }
   deriving (Generic)
 

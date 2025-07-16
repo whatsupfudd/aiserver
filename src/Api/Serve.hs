@@ -16,8 +16,8 @@ import GHC.Generics
 import Servant (Proxy (..), Context (..), hoistServerWithContext, serveWithContext, Handler (..))
 import Servant.Server.Generic (AsServerT, genericServerT)
 import Servant.Auth.Server (Auth, AuthResult (..), IsSecure (NotSecure)
-            , BasicAuth, BasicAuthCfg, FromBasicAuthData
-            , CookieSettings (CookieSettings, cookieIsSecure), defaultCookieSettings
+            -- , BasicAuth, BasicAuthCfg, FromBasicAuthData
+            , CookieSettings (..), defaultCookieSettings
             , JWT, JWTSettings, FromJWT (..), ToJWT (..), defaultJWTSettings )
 import qualified Servant.Auth.Server as Sauth
 import Servant.API ((:>), JSON)
@@ -45,10 +45,14 @@ import qualified Service.DbOps as Srv
 import qualified Service.Types (TopDescription (..))
 import Api.Types
 
+
+-- Root handling definition:
 type MainApi = ToServantApi TopRoutes
 
+endpointsProxy :: Proxy MainApi
+endpointsProxy = Proxy
 
--- serveApi ::  Rt.RunOptions -> Pool -> IO Application
+
 launchServant ::  Rt.RunOptions -> Pool -> IO Application
 launchServant rtOpts pgPool = do
   putStrLn $ "@[launchServant] starting, confFile: " <> show rtOpts.jwkConfFile <> "."
@@ -60,19 +64,23 @@ launchServant rtOpts pgPool = do
     linkUp :: NonEmpty (a -> a) -> a -> a
     linkUp = foldr1 (.)
 
-    cookieCfg = defaultCookieSettings { cookieIsSecure = NotSecure }
+    cookieSettings = defaultCookieSettings -- { cookieIsSecure = NotSecure }
     jwtSettings = Sauth.defaultJWTSettings jwtKey
-    -- sessionAuth = validateUser dbPool
-    sessionAuth = validateUser
+    sessionAuth = validateUser pgPool jwtSettings
+    -- sessionAuth = validateUser
     -- For file upload support, will be used later:
     multipartOpts :: MultipartOptions Tmp
     multipartOpts = (defaultMultipartOptions (Proxy :: Proxy Tmp)) {
-        generalOptions = setMaxRequestFilesSize 50000000 $ setMaxRequestFileSize 50000000 $ setMaxRequestKeyLength 1024 defaultParseRequestBodyOptions
+        generalOptions = setMaxRequestFilesSize 50000000 
+            $ setMaxRequestFileSize 50000000
+            $ setMaxRequestKeyLength 1024 defaultParseRequestBodyOptions
       }
-
-
-    apiContext = cookieCfg :. jwtSettings :. sessionAuth :. multipartOpts :. EmptyContext
-    apiContextP = Proxy :: Proxy '[CookieSettings, JWTSettings, BasicAuthCfg, MultipartOptions Tmp]
+    -- multipartOpts :.
+    -- sessionAuth :.
+    apiContext = cookieSettings :. jwtSettings :. sessionAuth :. EmptyContext
+    -- BasicAuthCfg
+    --  , MultipartOptions Tmp
+    apiContextP = Proxy :: Proxy '[CookieSettings, JWTSettings]
 
     middlewares = case rtOpts.corsPolicy of
       Nothing -> linkUp $ id :| [ logStdout ]
@@ -85,6 +93,7 @@ launchServant rtOpts pgPool = do
     Right serviceDefs ->
       -- TODO: add errorMw @JSON @'["message", "status"] when Servant.Errors is compatible with aeson-2.
       let
+        s3Storage = S3.makeS3Conn <$> rtOpts.s3store
         appEnv = AppEnv { config_Ctxt = rtOpts
               , jwt_Ctxt = jwtSettings
               , pgPool_Ctxt = pgPool
@@ -92,20 +101,19 @@ launchServant rtOpts pgPool = do
               , serviceDefs_Ctxt = serviceDefs
             }
         -- TODO: add state to the handler if running with RWST.
-        s3Storage = S3.makeS3Conn <$> rtOpts.s3store
-        server = hoistServerWithContext serverApiProxy apiContextP (apiAsHandler appEnv) serverApiT
+        server = hoistServerWithContext endpointsProxy apiContextP (apiAsHandler appEnv) serverApiT
       in do
       putStrLn $ "@[launchServant] got service definitions: " <> show serviceDefs
       case Mp.lookup "elevenlabs" serviceDefs of
         Nothing -> putStrLn "@[launchServant] no elevenlabs."
         Just acctInfo -> do
-          putStrLn $ "@[launchServant] got service id: " <> show acctInfo.id
+          -- putStrLn $ "@[launchServant] got service id: " <> show acctInfo.id
           eiServiceAccess <- Srv.getServiceAccess pgPool acctInfo.id "-system"
           case eiServiceAccess of
             Left errMsg -> error $ "@[launchServant] getServiceAccess err: " <> errMsg
             Right mbAcctAccess -> do
               case mbAcctAccess of
-                Nothing -> putStrLn $ "@[launchServant] no access."
+                Nothing -> putStrLn "@[launchServant] no access."
                 Just (idlabel, secret) ->
                   putStrLn $ "@[launchServant] got service access: " <> show idlabel
       case s3Storage of
@@ -114,13 +122,7 @@ launchServant rtOpts pgPool = do
           putStrLn $ "@[serveApi] using s3, host: " <> maybe "<error!>" (unpack . S3.host) rtOpts.s3store <> ", bucket: " <> show aConn.bucketCn
 
       putStrLn $ "@[serveApi] listening on port " <> show rtOpts.serverPort <> "."
-      pure $ middlewares $ serveWithContext serverApiProxy apiContext server
-
-
--- Root handling definition:
-
-serverApiProxy :: Proxy MainApi
-serverApiProxy = Proxy
+      pure $ middlewares $ serveWithContext endpointsProxy apiContext server
 
 
 -- Manages the application environment and projects to the Handler after a request processing. It is invoked for each request.

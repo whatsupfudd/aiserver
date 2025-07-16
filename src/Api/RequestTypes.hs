@@ -52,13 +52,19 @@ data OperationStatus = OperationStatus {
   } deriving (Show, Eq, Generic, FromJSON, ToJSON)
 
 -- | 4. Service invocation
-data ServiceRequest = ServiceRequest { 
-    service :: UUID
-  , payload :: Value
+data InvokeRequest = InvokeRequest { 
+    function :: UUID
+  , context :: Maybe UUID
+  , parameters :: Value
+  , content :: Value
   , files :: [UUID]
   , references :: [UUID]
-  } deriving (Show, Eq, Generic, FromJSON, ToJSON)
+  } deriving (Show, Eq, Generic, FromJSON)
 
+data ResourceRequest = ResourceRequest { 
+    function :: UUID
+  , parameters :: Value
+  } deriving (Show, Eq, Generic, FromJSON)
 
 -- | 5. Storage
 data StoragePut = StoragePut { 

@@ -8,12 +8,13 @@ module Routing.ClientH where
 
 import Control.Monad.Except (throwError)
 import Control.Monad.IO.Class (liftIO)
+import qualified Control.Monad.Reader as Gm
 
 import Data.Maybe (fromMaybe)
 import Data.UUID (UUID)
 import qualified Data.UUID as Uu
 import Data.ByteString (ByteString)
-import Data.Text (Text, unpack)
+import Data.Text (Text, unpack, pack)
 
 import GHC.Generics (Generic)
 
@@ -24,11 +25,13 @@ import Servant.API (JSON, PlainText, ReqBody, Get, Post, Delete, OctetStream, (:
 import Servant.Auth.Server (Auth, JWT, BasicAuth, AuthResult (..))
 import Servant.Server.Generic (AsServerT, genericServerT)
 
-import Api.Types (ClientInfo, AIServerApp, ApiError (..), fakeClientInfo, Html (..), SessionItems (..))
+import Api.Types (ClientInfo, AIServerApp, ApiError (..), AppEnv (..), fakeClientInfo, Html (..), SessionItems (..))
+import qualified DB.Opers as DbB
 import qualified Api.RequestTypes as Rq
 import qualified Api.ResponseTypes as Rr
 import qualified Routing.ClientR as Cr
 import qualified Api.Session as Sess
+import qualified Service.Opers as Ops
 
 
 
@@ -164,9 +167,16 @@ repeatOpHandler authResult repeatRequest = do
 
 
 --- Invoke:
+{-
+  getResource :: route :- "resource" :> ReqBody '[JSON] Rq.ResourceRequest :> Post '[JSON] Rr.InvokeResponse
+  , fetchResult :: route :- "fetch" :> QueryParam"tid" UUID :> QueryParam' '[Optional] "mode" Text :> Get '[JSON] Rr.InvokeResponse
+  , invokeService :: route :- ReqBody '[JSON] Rq.InvokeRequest :> Post '[JSON] Rr.InvokeResponse
+-}
 invokeHandlers :: AuthResult ClientInfo -> ToServant Cr.InvokeRoutes (AsServerT AIServerApp)
 invokeHandlers authResult = genericServerT $ Cr.InvokeRoutes {
-    invokeService = invokeServiceHandler authResult
+    getResource = getResourceHandler authResult
+  , fetchResult = fetchResultHandler authResult
+  , invokeService = invokeServiceHandler authResult
   }
 
 
@@ -194,26 +204,78 @@ data TestError = TestError {
   deriving anyclass Ae.ToJSON
 
 
-invokeServiceHandler :: AuthResult ClientInfo -> Rq.ServiceRequest -> AIServerApp Rr.ServiceResponse
-invokeServiceHandler authResult serviceRequest = do
-  liftIO $ putStrLn $ "@[invokeServiceHandler] serviceRequest: " <> show serviceRequest
-  case Uu.toString serviceRequest.service of  
-    "123e4567-e89b-12d3-a456-426614174000" ->
-      case Ae.fromJSON serviceRequest.payload :: Ae.Result TestPayload of
-        Ae.Success payload -> do
-          liftIO $ putStrLn $ "@[invokeServiceHandler] payload: " <> show payload
-          let
-            returnValue = TestResult {
-              id = Uu.nil
-              , name = "Test Result"
-              , description = "Test Result Description"
-            }
-          liftIO $ Rr.fakeServiceResponse (Ae.toJSON payload) "OK"
-        Ae.Error err -> do
-          liftIO $ putStrLn $ "@[invokeServiceHandler]can't decode: " <> show serviceRequest.payload <> " error: " <> err
-          liftIO $ Rr.fakeServiceResponse (Ae.toJSON $ TestError "123" "@[invokeServiceHandler] Can't decode payload") "ERROR"
-    _ ->
-      liftIO $ Rr.fakeServiceResponse (Ae.toJSON $ "@[invokeServiceHandler] unknown svcId: " <> show serviceRequest.service) "ERROR"
+invokeServiceHandler :: AuthResult ClientInfo -> Rq.InvokeRequest -> AIServerApp Rr.InvokeResponse
+invokeServiceHandler (Authenticated clientInfo) request = do
+  dbPool <- Gm.asks pgPool_Ctxt
+  srvCtxt <- Gm.asks serviceDefs_Ctxt
+  eiValidClient <- liftIO $ DbB.checkValidClient dbPool clientInfo
+  case eiValidClient of
+    Left err ->
+      let
+        errMsg = "@[invokeServiceHandler] checkValidClient err: " <> err
+      in do
+        liftIO $ putStrLn errMsg
+        throwError . InternalErrorAE $ pack errMsg
+    Right checkResult ->
+      if checkResult then do
+        liftIO $ putStrLn $ "@[invokeServiceHandler] valid client: " <> show clientInfo
+        rezA <- liftIO $ DbB.serializeInvocation dbPool request
+        case rezA of
+          Left errMsg ->
+            let
+              errMsg = "@[invokeServiceHandler] serializeRequest err: " <> errMsg
+            in do
+              liftIO $ putStrLn errMsg
+              throwError . InternalErrorAE $ pack errMsg
+          Right tranz -> do
+            liftIO $ putStrLn $ "@[invokeServiceHandler] serialized request: " <> show tranz
+            rezB <- liftIO $ Ops.spanInvocation srvCtxt dbPool request tranz
+            pure tranz
+      else
+        let
+          errMsg = "@[invokeServiceHandler] invalid client: " <> show clientInfo
+        in do
+        liftIO $ putStrLn errMsg
+        throwError . InternalErrorAE $ pack errMsg
+      {-
+      liftIO $ putStrLn $ "@[invokeServiceHandler] request: " <> show request
+      case Uu.toString request.service of  
+        "123e4567-e89b-12d3-a456-426614174000" ->
+          case Ae.fromJSON request.payload :: Ae.Result TestPayload of
+            Ae.Success payload -> do
+              liftIO $ putStrLn $ "@[invokeServiceHandler] payload: " <> show payload
+              let
+                returnValue = TestResult {
+                  id = Uu.nil
+                  , name = "Test Result"
+                  , description = "Test Result Description"
+                }
+              liftIO $ Rr.fakeServiceResponse (Ae.toJSON payload) "OK"
+            Ae.Error err -> do
+              liftIO $ putStrLn $ "@[invokeServiceHandler]can't decode: " <> show request.payload <> " error: " <> err
+              liftIO $ Rr.fakeServiceResponse (Ae.toJSON $ TestError "123" "@[invokeServiceHandler] Can't decode payload") "ERROR"
+        _ ->
+          liftIO $ Rr.fakeServiceResponse (Ae.toJSON $ "@[invokeServiceHandler] unknown svcId: " <> show request.service) "ERROR"
+      -}
+
+invokeServiceHandler authResult request =
+  let
+    errMsg = "@[invokeServiceHandler] invalid authResult: " <> show authResult
+  in do
+    liftIO $ putStrLn errMsg
+    throwError UnauthorizedAE
+
+
+getResourceHandler :: AuthResult ClientInfo -> Rq.ResourceRequest -> AIServerApp Rr.InvokeResponse
+getResourceHandler authResult resourceRequest = do
+  liftIO $ putStrLn $ "@[getResourceHandler] resourceRequest: " <> show resourceRequest
+  liftIO $ Rr.fakeServiceResponse (Ae.toJSON $ TestError "123" "@[getResourceHandler] Can't decode payload") "ERROR"
+
+
+fetchResultHandler :: AuthResult ClientInfo -> Maybe UUID -> Maybe Text -> AIServerApp Rr.InvokeResponse
+fetchResultHandler authResult tid mode = do
+  liftIO $ putStrLn $ "@[fetchResultHandler] tid: " <> show tid <> " mode: " <> show mode
+  liftIO $ Rr.fakeServiceResponse (Ae.toJSON $ TestError "123" "@[fetchResultHandler] Can't decode payload") "ERROR"
 
 
 -- Retrieve:
@@ -222,7 +284,7 @@ retrieveHandlers authResult = genericServerT $ Cr.RetrieveRoutes {
     retrieve = retrieveHandler authResult
   }
 
-retrieveHandler :: AuthResult ClientInfo -> UUID -> AIServerApp Rr.ServiceResponse
+retrieveHandler :: AuthResult ClientInfo -> UUID -> AIServerApp Rr.InvokeResponse
 retrieveHandler authResult requestId = do
   liftIO $ putStrLn $ "@[retrieveHandler] requestId: " <> show requestId 
   liftIO $ Rr.fakeServiceResponse (Ae.toJSON $ TestError "123" "@[retriveHandler] Can't decode payload") "ERROR"

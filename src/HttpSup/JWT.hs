@@ -3,8 +3,15 @@ module HttpSup.JWT where
 import Control.Lens ((?~), (^.), view, set)
 import Control.Monad.Except
 import Control.Monad.IO.Class (liftIO)
--- import Crypto.JOSE.JWA.JWS (Alg (ES256))
+
+import qualified Data.ByteString as BS
+import qualified Data.ByteString.Lazy as BSL
+import Data.Function ((&))
+import Data.Text (Text)
+import qualified Data.Text as DT
+
 {-
+import Crypto.JOSE.JWA.JWS (Alg (ES256))
 import Crypto.JOSE.JWK (AsPublicKey (asPublicKey), Crv (P_256),
                                        JWK, JWKAlg (JWSAlg),
                                        KeyMaterialGenParam (ECGenParam),
@@ -14,20 +21,16 @@ import Crypto.JOSE.JWK (AsPublicKey (asPublicKey), Crv (P_256),
 -}
 import Crypto.JWT
 import qualified Crypto.JWT as Jose
-import Data.Aeson (eitherDecodeFileStrict, encodeFile)
-import qualified Data.ByteString as BS
-import qualified Data.ByteString.Lazy as BSL
-import Data.Function ((&))
-import Data.Text (Text)
-import qualified Data.Text as DT
 
-import Servant.Auth.Server
+import Data.Aeson (eitherDecodeFileStrict, encodeFile)
+
+import qualified Servant.Auth.Server as Sas
 
 
 generateKeyPair :: MonadRandom m => m JWK
 generateKeyPair = do
   k <- genJWK . ECGenParam $ P_256
-  return $ k
+  pure $ k
     & jwkAlg ?~ JWSAlg ES256
     & jwkKeyOps ?~ [Sign, Verify]
     & jwkUse ?~ Sig
@@ -42,19 +45,20 @@ tmpJWK = do
   pure $ set jwkKid Nothing jwk
 
 
--- | Generate jwk and public version according to kyrosid specs.
-generateKeyPairIO :: FilePath -> IO ()
-generateKeyPairIO path = do
+-- | Save a new jwk and its public version to a file.
+saveNewJWKToFile :: FilePath -> IO (Either String JWK)
+saveNewJWKToFile path = do
   keyPair <- generateKeyPair
   let mbPubJWK = keyPair ^. asPublicKey
   case mbPubJWK of
-    Nothing -> fail "Public JWK generation error"
-    Just pubJWK ->
+    Nothing -> pure $ Left "~@[saveNewJWKToFile] public JWK generation error."
+    Just pubJWK -> do
       encodeFile (path <> ".pub") pubJWK
-  encodeFile path keyPair
+      encodeFile path keyPair
+      pure $ Right keyPair
 
 
--- | Read JWK from file
+-- | Load the JWK from a file (in standard JSON format).
 readJWK :: FilePath -> IO JWK
 readJWK path = do
   eJWK <- eitherDecodeFileStrict path
@@ -63,27 +67,24 @@ readJWK path = do
     Right keyPair -> pure keyPair
 
 
-verifyJWT' :: FromJWT a => JWTSettings -> BS.ByteString -> IO (Either Text a)
+verifyJWT' :: Sas.FromJWT a => Sas.JWTSettings -> BS.ByteString -> IO (Either Text a)
 verifyJWT' jwtCfg input = do
-  verifiedJWT <- liftIO $ runExceptT . withExceptT formJWTError $ do
-    unverifiedJWT <- Jose.decodeCompact (BSL.fromStrict input)
-    valKeys <- liftIO $ validationKeys jwtCfg
-    Jose.verifyClaims
-      (jwtSettingsToJwtValidationSettings jwtCfg)
-      valKeys
-      unverifiedJWT
-
-  let eitherResult = verifiedJWT >>= decodeJWT
-
-  return eitherResult
+  verifiedJWT <- liftIO $
+    runExceptT . withExceptT formJWTError $ do
+      unverifiedJWT <- Jose.decodeCompact (BSL.fromStrict input)
+      valKeys <- liftIO $ Sas.validationKeys jwtCfg
+      let
+        validationSettings = jwtSettingsToJwtValidationSettings jwtCfg
+      Jose.verifyClaims validationSettings valKeys unverifiedJWT
+  pure $ verifiedJWT >>= Sas.decodeJWT
   where
     formJWTError :: JWTError -> Text
     formJWTError = DT.pack . show
 
 
-jwtSettingsToJwtValidationSettings :: JWTSettings -> Jose.JWTValidationSettings
+jwtSettingsToJwtValidationSettings :: Sas.JWTSettings -> Jose.JWTValidationSettings
 jwtSettingsToJwtValidationSettings s =
-  defaultJWTValidationSettings (toBool <$> audienceMatches s)
+  defaultJWTValidationSettings (toBool <$> Sas.audienceMatches s)
   where
-    toBool Matches = True
-    toBool DoesNotMatch = False
+    toBool Sas.Matches = True
+    toBool Sas.DoesNotMatch = False

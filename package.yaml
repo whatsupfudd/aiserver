@@ -56,6 +56,7 @@ dependencies:
   - warp
   # For HTTP client:
   - http-client
+  - http-client-tls
   # For JWT crypto support:
   - jose
   - lens

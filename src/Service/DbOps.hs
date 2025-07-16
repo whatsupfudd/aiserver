@@ -56,7 +56,30 @@ create table if not exists servAuth (
   , created_at timestamp not null default now()
 );
 
+create table if not exists servaccess (
+  servfct_fk int not null references servfunction(uid)
+  , caccount int not null references account(uid)
+);
+
 -}
+
+getAuthForServiceID :: Pool -> Int32 -> Text -> IO (Either String (Maybe (Text, Text, Int32)))
+getAuthForServiceID pgPool servID acctName = do
+  eiRez <- use pgPool $ statement (servID, acctName) [TH.maybeStatement|
+    select
+      a.idlabel::text, a.secret::text
+      , b.authMethod::int4
+    from servauth a
+    join servaccount b on a.servaccount_fk = b.uid
+    where
+      b.service_fk = $1::int4 and b.status = 1
+      and b.acctName = $2::text
+  |]
+  case eiRez of
+    Right mbRez -> do
+      pure $ Right mbRez
+    Left err -> do
+      pure . Left $ "@[getAuthForServiceID] err: " <> show err
 
 
 getServiceDefs :: Pool -> IO (Either String (Mp.Map Text TopDescription))
@@ -123,3 +146,18 @@ getServiceAccess pgPool servID acctName = do
     Left err -> do
       pure . Left $ "@[getServiceAccess] err: " <> show err
 
+
+getServiceForFunction :: Pool -> UUID -> IO (Either String (Int32, Text, Text))
+getServiceForFunction pgPool functionID = do
+  eiRez <- use pgPool $ statement functionID [TH.singletonStatement|
+    select
+      a.uid::int4, a.name::text, b.name::text
+    from aiservice a
+    join servfunction b on a.uid = b.aiservice_fk
+    where b.eid = $1::uuid
+  |]
+  case eiRez of
+    Right targetService -> do
+      pure . Right $ targetService
+    Left err -> do
+      pure . Left $ "@[getServiceForFunction] err: " <> show err

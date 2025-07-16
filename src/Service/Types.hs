@@ -43,11 +43,13 @@ data ComplexRequest = ComplexRequest {
     , account :: UserAccount
     , context :: ServiceContext
   }
+  deriving (Show)
 
 data RequestComponent =
   PromptRC Text
   | FunctionCallRC FunctionCall
   | AssetRC UUID
+  deriving (Show)
 
 
 data FunctionCall = FunctionCall {
@@ -81,7 +83,27 @@ data UserAccount = UserAccount {
 
 
 data ServiceContext = ServiceContext {
-    id :: UUID
+    label :: Text
     , apiKey :: Bs.ByteString
+  }
+  deriving (Show)
+
+data KnownServices =
+  ClaudeAIIP
+  | DeepSeekIP
+  | ElevenLabsIP
+  | FluxIP
+  | GeminiIP
+  | GroqIP
+  | KimiIP
+  | LlamaIP
+  | OpenAIIP
+  | QwenIP
+  deriving (Show)
+
+
+data InvokePacket = InvokePacket {
+    service :: KnownServices
+    , request :: ComplexRequest
   }
   deriving (Show)

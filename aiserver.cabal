@@ -60,6 +60,7 @@ library
       Service.Kimi
       Service.Llama
       Service.OpenAI
+      Service.Opers
       Service.Qwen
       Service.Types
   other-modules:
@@ -86,6 +87,7 @@ library
     , hasql-pool
     , hasql-th
     , http-client
+    , http-client-tls
     , http-media
     , http-types
     , jose
@@ -142,6 +144,7 @@ executable aiserver
     , hasql-pool
     , hasql-th
     , http-client
+    , http-client-tls
     , http-media
     , http-types
     , jose
@@ -199,6 +202,7 @@ test-suite aiserver-test
     , hasql-pool
     , hasql-th
     , http-client
+    , http-client-tls
     , http-media
     , http-types
     , jose
