@@ -248,3 +248,10 @@ create table if not exists Asset (
   , notes text
 );
 
+create table if not exists AssetResponseLink (
+  uid serial primary key
+  , asset_fk int not null references Asset(uid)
+  , response_fk int not null references cresponse(uid)
+  , created_at timestamp not null default now()
+  , status int not null default 1     -- 1: active, 2: disabled, 3: retired.
+);
