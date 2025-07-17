@@ -1,12 +1,16 @@
 {-# LANGUAGE DeriveGeneric #-}
-{-# LANGUAGE GeneralizedNewtypeDeriving #-}
+{-# LANGUAGE LambdaCase #-}
 
 module Service.ElevenLabs where
 
 import qualified Data.ByteString.Lazy as Lbs
 import Data.Int (Int32)
+import qualified Data.Map as Mp
 import Data.Text (Text, unpack, pack)
+import qualified Data.Text.Encoding as T
 import qualified Data.List as L
+import qualified Data.UUID as Uu
+import qualified Data.UUID.V4 as Uu
 
 import GHC.Generics (Generic)
 
@@ -23,31 +27,27 @@ import qualified Data.Aeson.Key as Ak
 import qualified Api.RequestTypes as Rq
 import qualified Api.ResponseTypes as Rr
 
+import qualified Assets.Storage as S3
+
 import qualified DB.Opers as Db
 import qualified Service.DbOps as Sdb
 
 
 import Service.Types
+import Control.Concurrent (threadDelay)
 
-spanInvocation :: ServiceContext -> Pool -> Text -> Rq.InvokeRequest -> Rr.InvokeResponse -> IO (Either String Int32)
-spanInvocation srvCtxt dbPool fctName request tranz = do
-  case fctName of
-    "text_to_speech" -> do
-      putStrLn "@[spanInvocation] text_to_speech."
-      handleRequestFor srvCtxt fctName request
-      pure . Right $ 1
-    "list_voices" -> do
-      putStrLn "@[spanInvocation] list_voices."
-      handleRequestFor srvCtxt fctName request
-      pure . Right $ 1
-    "list_models" -> do
-      putStrLn "@[spanInvocation] list_models."
-      handleRequestFor srvCtxt fctName request
-      pure . Right $ 1
-    _ -> do
-      putStrLn $ "@[spanInvocation] unknown function: " <> unpack fctName
-      pure . Left $ "unknown function: " <> unpack fctName
-  
+spanInvocation :: ServiceContext -> Rq.InvokeRequest -> Rr.InvokeResponse -> IO (Either String ServiceResult)
+spanInvocation srvCtxt request tranz = do
+  if srvCtxt.functionD.label `L.elem` ["text_to_speech", "list_voices", "list_models"] then do
+    handleRequestFor srvCtxt request
+  else
+    let
+      errMsg = "@[spanInvocation] unknown function: " <> unpack srvCtxt.functionD.label
+    in do
+    putStrLn errMsg
+    pure . Left $ errMsg
+
+
 {-
 text to speech:
 curl -X POST "https://api.elevenlabs.io/v1/text-to-speech/JBFqnCBsd6RMkjVDRZzb?output_format=mp3_44100_128" \
@@ -77,7 +77,6 @@ data ParameterValue = ParameterValue {
   , value :: Text
   } deriving (Show, Eq, Generic)
 
-
 instance Ae.FromJSON ParameterValue where
   parseJSON (Ae.Object o) =
     let
@@ -102,9 +101,10 @@ instance Ae.FromJSON ParamContainer where
     in pure $ ParamContainer paramList
   parseJSON _ = fail "ParamContainer: Expected an object"
 
-handleRequestFor :: ServiceContext -> Text -> Rq.InvokeRequest ->  IO (Either Text ())
-handleRequestFor srvCtxt aFunction request =
-  case aFunction of
+
+handleRequestFor :: ServiceContext -> Rq.InvokeRequest ->  IO (Either String ServiceResult)
+handleRequestFor srvCtxt request =
+  case srvCtxt.functionD.label of
     "text_to_speech" -> do
       case Ae.fromJSON request.parameters :: Ae.Result ParamContainer of
         Ae.Error err -> do
@@ -116,9 +116,6 @@ handleRequestFor srvCtxt aFunction request =
             voiceID = case L.find (\p -> p.name == "voice") paramContainer.params of
               Just (ParameterValue _ voiceID) -> unpack voiceID
               Nothing -> "JBFqnCBsd6RMkjVDRZzb"
-            outputFile = case L.find (\p -> p.name == "output_file") paramContainer.params of
-              Just (ParameterValue _ outputFile) -> unpack outputFile
-              Nothing -> "/tmp/response.mp3"
           case Ae.fromJSON request.content :: Ae.Result Text of
             Ae.Error err -> do
               putStrLn $ "Error parsing content: " <> err
@@ -139,10 +136,17 @@ handleRequestFor srvCtxt aFunction request =
                   , Hc.requestHeaders = [("xi-api-key", srvCtxt.apiKey), ("Content-Type", "application/json")]
                   }
               -- putStrLn $ "Request: " <> show request
-              response <- Hc.httpLbs request manager
-              putStrLn $ "The status code was: " <> show response.responseStatus.statusCode
-              Lbs.writeFile outputFile response.responseBody
-              pure $ Right ()
+              assetEid <- Uu.nextRandom
+              let
+                newAsset = S3.prepareNewAsset assetEid "ElevenLabs" "audio/mp3"
+              rezA <- S3.insertNewAsset srvCtxt.dbPool srvCtxt.s3Conn manager request newAsset 
+              case rezA of
+                Left err -> do
+                  putStrLn $ "Error inserting asset: " <> err
+                  pure $ Left "Error inserting asset"
+                Right updAsset -> do
+                  putStrLn $ "Asset inserted: " <> show updAsset
+                  pure . Right $ AssetSR updAsset
     "list_voices" -> do
       manager <- Hc.newManager Hct.tlsManagerSettings
       initialRequest <- Hc.parseRequest "https://api.elevenlabs.io/v2/voices"
@@ -151,9 +155,11 @@ handleRequestFor srvCtxt aFunction request =
           , Hc.requestHeaders = [("xi-api-key", srvCtxt.apiKey)]
           }
       response <- Hc.httpLbs request manager
-      putStrLn $ "The status code was: " <> show response.responseStatus.statusCode
-      Lbs.writeFile "/tmp/response.json" response.responseBody
-      pure $ Right ()
+      case Hs.statusCode response.responseStatus of
+        200 ->
+          pure . Right . TextReplySR JsonRK . T.decodeUtf8 $ Lbs.toStrict response.responseBody
+        _ ->
+          pure . Left $ "@[handleRequestFor] list_voices err: " <> (show . Hs.statusCode) response.responseStatus
     "list_models" -> do
       manager <- Hc.newManager Hct.tlsManagerSettings
       initialRequest <- Hc.parseRequest "https://api.elevenlabs.io/v1/models"
@@ -162,8 +168,33 @@ handleRequestFor srvCtxt aFunction request =
           , Hc.requestHeaders = [("xi-api-key", srvCtxt.apiKey)]
           }
       response <- Hc.httpLbs request manager
-      putStrLn $ "The status code was: " <> show response.responseStatus.statusCode
-      Lbs.writeFile "/tmp/response.json" response.responseBody
-      pure $ Right ()
+      case Hs.statusCode response.responseStatus of
+        200 ->
+          pure . Right . TextReplySR JsonRK. T.decodeUtf8 $ Lbs.toStrict response.responseBody
+        _ ->
+          pure . Left $ "@[handleRequestFor] list_voices err: " <> (show . Hs.statusCode) response.responseStatus
     _ ->
-      pure $ Left "Function not supported"
+      pure . Left $ "@[handleRequestFor] ElevenLabs: function not supported: " <> unpack srvCtxt.functionD.label
+
+
+extractInvokeItems :: Rq.InvokeRequest -> Either String (Mp.Map Text Text, Text)
+extractInvokeItems request = do
+  case Ae.fromJSON request.parameters :: Ae.Result ParamContainer of
+    Ae.Error err ->
+      let
+        errMsg = "@[extractInvokeItems] Error parsing parameters: " <> err
+      in
+      Left errMsg
+    Ae.Success paramContainer ->
+      let
+        paramMap = Mp.fromList [ (p.name, p.value) | p <- paramContainer.params ]
+      in
+      case Ae.fromJSON request.content :: Ae.Result Text of
+        Ae.Error err ->
+          let
+            errMsg = "@[extractInvokeItems] Error parsing content: " <> err
+          in
+            Left errMsg
+        Ae.Success line ->
+          Right (paramMap, line)
+          

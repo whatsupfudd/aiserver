@@ -34,7 +34,6 @@ import qualified Api.Session as Sess
 import qualified Service.Opers as Ops
 
 
-
 -- Anonymous Handlers:
 publicHandlers :: ToServant Cr.PublicRoutes (AsServerT AIServerApp)
 publicHandlers = genericServerT $ Cr.PublicRoutes {
@@ -206,9 +205,8 @@ data TestError = TestError {
 
 invokeServiceHandler :: AuthResult ClientInfo -> Rq.InvokeRequest -> AIServerApp Rr.InvokeResponse
 invokeServiceHandler (Authenticated clientInfo) request = do
-  dbPool <- Gm.asks pgPool_Ctxt
-  srvCtxt <- Gm.asks serviceDefs_Ctxt
-  eiValidClient <- liftIO $ DbB.checkValidClient dbPool clientInfo
+  appEnv <- Gm.ask
+  eiValidClient <- liftIO $ DbB.checkValidClient appEnv.pgPool_Ctxt clientInfo
   case eiValidClient of
     Left err ->
       let
@@ -219,18 +217,14 @@ invokeServiceHandler (Authenticated clientInfo) request = do
     Right checkResult ->
       if checkResult then do
         liftIO $ putStrLn $ "@[invokeServiceHandler] valid client: " <> show clientInfo
-        rezA <- liftIO $ DbB.serializeInvocation dbPool request
-        case rezA of
-          Left errMsg ->
-            let
-              errMsg = "@[invokeServiceHandler] serializeRequest err: " <> errMsg
-            in do
-              liftIO $ putStrLn errMsg
-              throwError . InternalErrorAE $ pack errMsg
-          Right tranz -> do
-            liftIO $ putStrLn $ "@[invokeServiceHandler] serialized request: " <> show tranz
-            rezB <- liftIO $ Ops.spanInvocation srvCtxt dbPool request tranz
-            pure tranz
+        rezInv <- liftIO $ Ops.processInvocation appEnv clientInfo request
+        case rezInv of
+          Left err -> do
+            liftIO $ putStrLn $ "@[invokeServiceHandler] processInvocation err: " <> err
+            throwError . InternalErrorAE $ pack err
+          Right rez -> do
+            -- liftIO $ putStrLn $ "@[invokeServiceHandler] processInvocation rez: " <> show rez
+            pure rez
       else
         let
           errMsg = "@[invokeServiceHandler] invalid client: " <> show clientInfo

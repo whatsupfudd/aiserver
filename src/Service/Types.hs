@@ -9,7 +9,11 @@ import qualified Data.Vector as Vc
 
 import GHC.Generics (Generic)
 
+import Hasql.Pool (Pool)
+
 import qualified Data.Aeson as Ae
+
+import qualified Assets.Types as S3
 
 
 data TopDescription = TopDescription {
@@ -84,9 +88,20 @@ data UserAccount = UserAccount {
 
 data ServiceContext = ServiceContext {
     label :: Text
+    , serviceD :: TopDescription
+    , functionD :: FunctionDescription
     , apiKey :: Bs.ByteString
+    , dbPool :: Pool
+    , s3Conn :: S3.S3Conn
   }
-  deriving (Show)
+
+instance Show ServiceContext where
+  show srvCtxt =
+    "ServiceContext { label = " <> show srvCtxt.label
+      <> ", apiKey = " <> show srvCtxt.apiKey
+      <> ", s3Conn.bucket = " <> show srvCtxt.s3Conn.bucketCn
+      <> " }"
+
 
 data KnownServices =
   ClaudeAIIP
@@ -106,4 +121,18 @@ data InvokePacket = InvokePacket {
     service :: KnownServices
     , request :: ComplexRequest
   }
+  deriving (Show)
+
+
+data ReplyKind =
+  PlainTextRK
+  | JsonRK
+  | Base64RK
+  | MarkdownRK
+  deriving (Show)
+
+data ServiceResult =
+  AssetSR S3.Asset
+  | TextReplySR ReplyKind Text
+  | ComplexReplySR Ae.Value
   deriving (Show)

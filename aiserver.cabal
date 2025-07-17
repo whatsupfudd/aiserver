@@ -31,6 +31,7 @@ library
       Api.Serve
       Api.Session
       Api.Types
+      Assets.S3Ops
       Assets.Storage
       Assets.Types
       Commands
@@ -57,11 +58,13 @@ library
       Service.Flux
       Service.Gemini
       Service.Grok
+      Service.JobManager
       Service.Kimi
       Service.Llama
       Service.OpenAI
       Service.Opers
       Service.Qwen
+      Service.RemoteJobs
       Service.Types
   other-modules:
       Paths_aiserver
@@ -75,11 +78,14 @@ library
   build-depends:
       aeson
     , base >=4.7 && <5
+    , binary
     , bytestring
     , case-insensitive
     , conduit
     , containers
     , directory
+    , distributed-process
+    , distributed-process-simplelocalnet
     , exceptions
     , filepath
     , gitrev
@@ -88,12 +94,14 @@ library
     , hasql-th
     , http-client
     , http-client-tls
+    , http-conduit
     , http-media
     , http-types
     , jose
     , lens
     , minio-hs
     , mtl
+    , network-transport-tcp
     , optparse-applicative
     , postgresql-binary
     , scientific
@@ -103,6 +111,7 @@ library
     , servant-client
     , servant-multipart
     , servant-server
+    , stm
     , streaming-commons
     , text
     , time
@@ -132,11 +141,14 @@ executable aiserver
       aeson
     , aiserver
     , base >=4.7 && <5
+    , binary
     , bytestring
     , case-insensitive
     , conduit
     , containers
     , directory
+    , distributed-process
+    , distributed-process-simplelocalnet
     , exceptions
     , filepath
     , gitrev
@@ -145,12 +157,14 @@ executable aiserver
     , hasql-th
     , http-client
     , http-client-tls
+    , http-conduit
     , http-media
     , http-types
     , jose
     , lens
     , minio-hs
     , mtl
+    , network-transport-tcp
     , optparse-applicative
     , postgresql-binary
     , scientific
@@ -160,6 +174,7 @@ executable aiserver
     , servant-client
     , servant-multipart
     , servant-server
+    , stm
     , streaming-commons
     , text
     , time
@@ -190,11 +205,14 @@ test-suite aiserver-test
       aeson
     , aiserver
     , base >=4.7 && <5
+    , binary
     , bytestring
     , case-insensitive
     , conduit
     , containers
     , directory
+    , distributed-process
+    , distributed-process-simplelocalnet
     , exceptions
     , filepath
     , gitrev
@@ -203,12 +221,14 @@ test-suite aiserver-test
     , hasql-th
     , http-client
     , http-client-tls
+    , http-conduit
     , http-media
     , http-types
     , jose
     , lens
     , minio-hs
     , mtl
+    , network-transport-tcp
     , optparse-applicative
     , postgresql-binary
     , scientific
@@ -218,6 +238,7 @@ test-suite aiserver-test
     , servant-client
     , servant-multipart
     , servant-server
+    , stm
     , streaming-commons
     , text
     , time

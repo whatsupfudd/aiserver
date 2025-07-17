@@ -38,7 +38,7 @@ import Api.Session (validateUser)
 import Routing.TopDefs (TopRoutes)
 import Routing.TopHandlers (serverApiT)
 import qualified Assets.Types as S3
-import qualified Assets.Storage as S3
+import qualified Assets.S3Ops as S3
 import Assets.Types (S3Config (..))
 import qualified Options.Runtime as Rt
 import qualified Service.DbOps as Srv

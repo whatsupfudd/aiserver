@@ -1,118 +1,67 @@
+{-# LANGUAGE QuasiQuotes #-}
+
 module Assets.Storage where
 
-import Data.String (fromString)
-import Data.Text (Text, unpack, pack)
-import qualified Data.Vector as Vc
+import Data.Int (Int32, Int64)
+import Data.Text (Text, pack)
+import qualified Data.UUID as Uu
+import qualified Data.UUID.V4 as Uu
 
-import Conduit (runConduit, liftIO, (.|), sinkList, sinkFile, foldlC)
-import UnliftIO (throwIO, try)
+import Hasql.Session (Session, statement)
+import Hasql.Pool (Pool, use)
+import qualified Hasql.TH as TH
 
-import Network.HTTP.Client as NC
+import qualified Network.HTTP.Client.Conduit as Hcc
+import qualified Network.HTTP.Types.Status as Hs
 
-import qualified Network.Minio as Mn
-
+import qualified Assets.S3Ops as Ops
 import Assets.Types
 
 
-makeS3Conn :: S3Config -> S3Conn
-makeS3Conn conf =
-  let
-    creds = Mn.CredentialValue (Mn.AccessKey conf.user) (fromString $ unpack conf.passwd) Nothing
-    ciHost :: Mn.ConnectInfo
-    ciHost = fromString $ unpack conf.host
-    connInfo = Mn.setRegion conf.region $ Mn.setCreds creds ciHost
-  in
-  S3Conn {
-    bucketCn = conf.bucket
-    , credentialsCn = creds
-    , connInfoCn = connInfo
+{-
+create table if not exists Asset (
+  uid serial primary key
+  , eid uuid not null default uuid_generate_v4()
+  , created_at timestamp not null default now()
+  , status int not null default 1     -- 1: active, 2: disabled, 3: retired.
+  , name text
+  , description text
+  , contentType varchar(255)
+  , size bigint not null
+  , version int not null default 1
+  , notes text
+);
+-}
+
+prepareNewAsset :: Uu.UUID -> Text -> Text -> Asset
+prepareNewAsset eid notes contentType = Asset {
+  name = Nothing
+  , uid = Nothing
+  , eid = eid
+  , description = Nothing
+  , contentType = contentType
+  , size = 0
+  , version = 1
+  , notes = Just notes
   }
 
--- TODO: send back upload time.
-putFile :: S3Conn -> FilePath -> Text -> IO (Either String ())
-putFile s3Conf filePath locator = do
-  res <- Mn.runMinio s3Conf.connInfoCn $ do
-      -- Make a bucket; catch bucket already exists exception if thrown.
-      bErr <- try $ Mn.makeBucket s3Conf.bucketCn Nothing
-      case bErr of
-        Left Mn.BucketAlreadyOwnedByYou -> pure ()
-        Left e -> throwIO e
-        Right _ -> pure ()
 
-      -- Upload filepath to bucket; object is derived from filepath.
-      Mn.fPutObject s3Conf.bucketCn locator filePath Mn.defaultPutObjectOptions
-  case res of
-    Left e -> pure . Left $ "file upload failed due to " ++ show e
-    Right () -> pure $ Right ()
-
-
-getFile :: S3Conn -> Text -> FilePath -> IO (Either String ())
-getFile s3Conf locator filePath = do
-  res <- Mn.runMinio s3Conf.connInfoCn $ do
-      Mn.fGetObject s3Conf.bucketCn locator filePath Mn.defaultGetObjectOptions
-  case res of
-    Left e -> pure . Left $ "file download failed due to " ++ show e
-    Right () -> pure $ Right ()
-
-getFileB :: S3Conn -> Text -> FilePath -> IO (Either String ())
-getFileB s3Conf locator filePath = do
-  res <- Mn.runMinio s3Conf.connInfoCn $ do
-      rezA <- Mn.getObject s3Conf.bucketCn locator Mn.defaultGetObjectOptions
-      let
-        objInfo = Mn.gorObjectInfo rezA
-      liftIO $ putStrLn $ "@[getFileB] size: " <> show (Mn.oiSize objInfo) <> ", modTime: " <> show (Mn.oiModTime objInfo)
-      runConduit $ Mn.gorObjectStream rezA .| sinkFile filePath
-
-  case res of
-    Left e -> pure . Left $ "file download failed due to " ++ show e
-    Right () -> pure $ Right ()
-
-
-
-listFiles :: S3Conn -> Maybe Text -> IO (Either String [FilePath])
-listFiles s3Conf path = do
-  {- Testing:
-  rezT1 <- Mn.runMinio s3Conf.connInfoCn $ do
-    Mn.listBuckets
-  putStrLn $ "@[listFiles] rezT1: " <> show rezT1
-  --}
-  -- putStrLn $ "@[listFiles] starting, path: " <> show path <> ", bucket: " <> show s3Conf.bucketCn
-  rezA <- Mn.runMinio s3Conf.connInfoCn $ do
-    runConduit $ Mn.listObjects s3Conf.bucketCn path False .| sinkList
-  -- liftIO $ putStrLn $ show (take 5 rezA)
-  -- putStrLn "@[listFiles] done..."
+insertNewAsset :: Pool -> S3Conn -> Hcc.Manager -> Hcc.Request -> Asset -> IO (Either String Asset)
+insertNewAsset pgPool s3Conn manager request asset = do
+  rezA <- Ops.streamHttpResponseToS3 s3Conn manager request (pack . Uu.toString $ asset.eid)
   case rezA of
-    Left err -> pure . Left $ show err
-    Right listItems -> do
-      -- mapM_ print listItems
-      -- putStrLn $ "@[listFiles] length: " <> show (length listItems)
-      pure . Right $ map (unpack . itemToText) listItems
-
-itemToText anItem =
-  case anItem of
-    Mn.ListItemPrefix p -> p
-    Mn.ListItemObject o -> Mn.oiObject o
-
-
-listFilesWith :: S3Conn -> Vc.Vector Text  -> IO (Either String [FilePath])
-listFilesWith s3Conf paths = do
-  mgr <- NC.newManager NC.defaultManagerSettings
-  conn <- Mn.mkMinioConn s3Conf.connInfoCn mgr
-  rezA <- mapM (\aPath -> Mn.runMinioWith conn $ do
-      -- foldlC (\accum v -> accum <> v) 0
-      runConduit $ Mn.listObjects s3Conf.bucketCn (Just aPath) True .| foldlC (\accum item -> accum <> [unpack $ itemToText item]) []
-    ) paths
-  -- pure . Right $ foldl (\accum rez -> accum + (case rez of Left err -> 0; Right aList -> Vc.length (Vc.fromList aList))) 0 rezA
-  let
-    (allFound, errors) = foldl (\(items, errs) rez ->
-      case rez of
-        Left anErr ->
-          let
-            errMsg = "e: " <> show anErr
-          in
-          (items, if errs == "" then errMsg else errs <> ", " <> errMsg)
-        Right aList -> (items <> aList, errs)
-      ) ([], "") rezA
-  case errors of
-    "" -> pure $ Right allFound
-    aVal -> pure $ Left aVal
+    Left err ->
+      pure . Left $ "@[insertNewAsset] streamHttpResponseToS3 err: " <> show err
+    Right aSize -> do
+      rezB <- use pgPool $ statement (asset.name, asset.eid, asset.description, asset.contentType, aSize, asset.notes) [TH.singletonStatement|
+        insert into Asset
+          (name, eid, description, contentType, size, notes)
+        values
+          ($1::text?, $2::uuid, $3::text?, $4::text, $5::bigint, $6::text?)
+        returning uid::int4
+      |]
+      case rezB of
+        Left err ->
+          pure . Left $ "@[insertAsset] err: " <> show err
+        Right anID ->
+          pure . Right $ asset { uid = Just anID, size = aSize }

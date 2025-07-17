@@ -57,6 +57,7 @@ dependencies:
   # For HTTP client:
   - http-client
   - http-client-tls
+  - http-conduit
   # For JWT crypto support:
   - jose
   - lens
@@ -76,7 +77,13 @@ dependencies:
   - scientific
   - conduit
   - unliftio
-
+  # For Job Queue:
+  - stm
+  # For Distributed Computing:
+  - distributed-process
+  - distributed-process-simplelocalnet
+  - binary
+  - network-transport-tcp
 
 default-extensions:
 - OverloadedStrings

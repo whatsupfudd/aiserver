@@ -36,7 +36,7 @@ create table if not exists crequest (
   uid serial primary key
   , eid uuid not null default uuid_generate_v4()
   , account_fk int not null references account(uid)
-  , function_fk int not null references servfunction(uid)
+  , function_eid uuid not null
   , params jsonb not null
   , created_at timestamp not null default now()
 );
@@ -54,6 +54,7 @@ create table if not exists ReqExec (
 create table if not exists cresponse (
   uid serial primary key
   , eid uuid not null default uuid_generate_v4()
+  , crequest_fk int not null references crequest(uid)
   , created_at timestamp not null default now()
   , kind int not null default 1     -- 1: plain text, 2: json, 3: base64, 4: markdown, 5: reference to asset.
   , content text

@@ -5,6 +5,7 @@
 
 module Api.ResponseTypes where
 
+import Data.Int (Int32)
 import Data.Maybe (fromMaybe)
 import Data.Text (Text)
 import Data.UUID (UUID)
@@ -41,11 +42,22 @@ data ClientServiceDescriptor = ClientServiceDescriptor {
 
 
 data InvokeResponse = InvokeResponse { 
-    requestId :: UUID
-  , contextID :: UUID
+    requestID :: Int32
+  , requestEId :: UUID
+  , contextID :: Int32
+  , contextEId :: UUID
   , status :: Text
   , result :: Ae.Value
-  } deriving (Show, Eq, Generic, Ae.ToJSON)
+  }
+  deriving (Show, Eq, Generic)
+
+instance Ae.ToJSON InvokeResponse where
+   toEncoding invR = Ae.pairs (
+        "requestEId" Ae..= invR.requestEId
+      <> "contextEId" Ae..= invR.contextEId
+      <> "status" Ae..= invR.status
+      <> "result" Ae..= invR.result
+    )
 
 
 fakeServiceResponse :: Ae.Value -> Text -> IO InvokeResponse
@@ -53,8 +65,10 @@ fakeServiceResponse result status = do
   moment <- getCurrentTime
   newUuid <- nextRandom
   pure $ InvokeResponse {
-        requestId = newUuid
-        , contextID = newUuid
+        requestID = 1
+        , requestEId = newUuid
+        , contextID = 1
+        , contextEId = newUuid
         , result = result
         , status = status
       }
