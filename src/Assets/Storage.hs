@@ -16,6 +16,7 @@ import qualified Network.HTTP.Types.Status as Hs
 
 import qualified Assets.S3Ops as Ops
 import Assets.Types
+import qualified Data.ByteString.Lazy as Lbs
 
 
 {-
@@ -65,3 +66,24 @@ insertNewAsset pgPool s3Conn manager request asset = do
           pure . Left $ "@[insertAsset] err: " <> show err
         Right anID ->
           pure . Right $ asset { uid = Just anID, size = aSize }
+
+
+getAsset :: Pool -> S3Conn -> Uu.UUID -> IO (Either String (Text, Lbs.ByteString))
+getAsset pgPool s3Conn assetId = do
+  rezA <- use pgPool $ statement assetId [TH.singletonStatement|
+    select contentType::text, name::text?, description::text?, size::int8, notes::text?
+    from Asset
+    where eid = $1::uuid
+    order by version desc
+    limit 1
+  |]
+  case rezA of
+    Left err ->
+      pure . Left $ "@[getAsset] err: " <> show err
+    Right (contentType, mbName, mbDescription, size, mbNotes) -> do
+      rezB <- Ops.getStream s3Conn (pack . Uu.toString $ assetId)
+      case rezB of
+        Left err ->
+          pure . Left $ "@[getAsset] getStream err: " <> show err
+        Right lbs ->
+          pure $ Right (contentType, lbs)

@@ -156,14 +156,23 @@ spanInvocation srvCtxt request tranz = do
         rezB <- case result of
           AssetSR asset -> do
             putStrLn "@[spanInvocation] AssetSR"
-            Db.insertResponse srvCtxt.dbPool tranz Db.AssetRK Nothing >>= \case
-              Left err -> pure . Left $ err
-              Right (uid, eid) -> do
-                Db.linkAssetToResponse srvCtxt.dbPool uid eid >>= \case
-                  Left err -> pure . Left $ err
-                  Right _ -> pure $ Right (uid, eid)
+            case asset.uid of
+              Nothing -> do
+                Db.endTransaction srvCtxt.dbPool tranz (Db.FailedTS "@[spanInvocation] AssetSR: no uid")
+                pure $ Left "@[spanInvocation] AssetSR: no uid"
+              Just assetID -> do
+                Db.insertResponse srvCtxt.dbPool tranz Db.AssetRK Nothing >>= \case
+                  Left err -> do
+                    putStrLn $ "@[spanInvocation] insertResponse (asset) err: " <> err
+                    pure . Left $ "@[spanInvocation] insertResponse (asset) err: " <> err
+                  Right (uid, eid) -> do
+                    Db.linkAssetToResponse srvCtxt.dbPool uid assetID >>= \case
+                      Left err -> do
+                        putStrLn $ "@[spanInvocation] linkAssetToResponse err: " <> err
+                        pure . Left $ "@[spanInvocation] linkAssetToResponse err: " <> err
+                      Right _ -> pure $ Right (uid, eid)
           TextReplySR rKind someText -> do
-            putStrLn $ "@[spanInvocation] TextReplySR"
+            putStrLn "@[spanInvocation] TextReplySR"
             Db.insertResponse srvCtxt.dbPool tranz (replyKindToDbKind rKind) (Just someText)
           ComplexReplySR aValue-> do
             putStrLn "@[spanInvocation] ComplexReplySR"
@@ -175,8 +184,12 @@ spanInvocation srvCtxt request tranz = do
             Db.endTransaction srvCtxt.dbPool tranz Db.CompletedTS
             pure ()
 
+
 replyKindToDbKind :: ReplyKind -> Db.ResponseKind
-replyKindToDbKind PlainTextRK = Db.PlainTextRK
-replyKindToDbKind JsonRK = Db.JsonRK
-replyKindToDbKind Base64RK = Db.Base64RK
-replyKindToDbKind MarkdownRK = Db.MarkdownRK
+replyKindToDbKind aRKind =
+  case aRKind of
+    PlainTextRK -> Db.PlainTextRK
+    JsonRK -> Db.JsonRK
+    Base64RK -> Db.Base64RK
+    MarkdownRK -> Db.MarkdownRK
+    _ -> Db.PlainTextRK

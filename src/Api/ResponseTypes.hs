@@ -2,10 +2,11 @@
 {-# LANGUAGE DeriveGeneric #-}
 {-# LANGUAGE DerivingStrategies #-}
 {-# LANGUAGE DataKinds #-}
+{-# OPTIONS_GHC -Wno-partial-fields #-}
 
 module Api.ResponseTypes where
 
-import Data.Int (Int32)
+import Data.Int (Int32, Int64)
 import Data.Maybe (fromMaybe)
 import Data.Text (Text)
 import Data.UUID (UUID)
@@ -72,3 +73,22 @@ fakeServiceResponse result status = do
         , result = result
         , status = status
       }
+  
+data ResponseResponse = ResponseResponse {
+    responseEId :: UUID
+  , result :: ResponseKind
+  }
+  deriving (Show, Eq, Generic, Ae.ToJSON)
+
+data TBlockFormat =
+  PlainTextTF
+  | JsonTF
+  | Base64TF
+  | MarkdownTF
+  deriving (Show, Eq, Generic, Ae.ToJSON)
+
+data ResponseKind =
+  NoResponseYetRK
+  | TextBlockRK { format :: TBlockFormat, content :: Text }
+  | AssetRK { notes :: Maybe Text, size :: Maybe Int64, assetEId :: UUID }
+  deriving (Show, Eq, Generic, Ae.ToJSON)

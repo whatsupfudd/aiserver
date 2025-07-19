@@ -10,6 +10,7 @@ import Control.Monad.Except (throwError)
 import Control.Monad.IO.Class (liftIO)
 import qualified Control.Monad.Reader as Gm
 
+import qualified Data.ByteString.Lazy as Lbs
 import Data.Maybe (fromMaybe)
 import Data.UUID (UUID)
 import qualified Data.UUID as Uu
@@ -21,12 +22,13 @@ import GHC.Generics (Generic)
 import qualified Data.Aeson as Ae
 
 import Servant.API.Generic
-import Servant.API (JSON, PlainText, ReqBody, Get, Post, Delete, OctetStream, (:>), Capture, NoContent)
+import Servant.API (JSON, PlainText, ReqBody, Get, Post, Delete, OctetStream, (:>), Capture, NoContent, Header, Raw, addHeader, Headers)
 import Servant.Auth.Server (Auth, JWT, BasicAuth, AuthResult (..))
 import Servant.Server.Generic (AsServerT, genericServerT)
 
 import Api.Types (ClientInfo, AIServerApp, ApiError (..), AppEnv (..), fakeClientInfo, Html (..), SessionItems (..))
 import qualified DB.Opers as DbB
+import qualified Assets.Storage as DbA
 import qualified Api.RequestTypes as Rq
 import qualified Api.ResponseTypes as Rr
 import qualified Routing.ClientR as Cr
@@ -101,6 +103,7 @@ privateHandlers authResult = genericServerT $ Cr.PrivateRoutes {
     client = clientHandlers authResult
   , repeat = repeatHandlers authResult
   , invoke = invokeHandlers authResult
+  , asset = assetHandlers authResult
   , retrieve = retrieveHandlers authResult
   , storage = storageHandlers authResult
   , admin = adminHandlers authResult
@@ -174,7 +177,7 @@ repeatOpHandler authResult repeatRequest = do
 invokeHandlers :: AuthResult ClientInfo -> ToServant Cr.InvokeRoutes (AsServerT AIServerApp)
 invokeHandlers authResult = genericServerT $ Cr.InvokeRoutes {
     getResource = getResourceHandler authResult
-  , fetchResult = fetchResultHandler authResult
+  , getResponse = getResponseHandler authResult
   , invokeService = invokeServiceHandler authResult
   }
 
@@ -266,10 +269,53 @@ getResourceHandler authResult resourceRequest = do
   liftIO $ Rr.fakeServiceResponse (Ae.toJSON $ TestError "123" "@[getResourceHandler] Can't decode payload") "ERROR"
 
 
-fetchResultHandler :: AuthResult ClientInfo -> Maybe UUID -> Maybe Text -> AIServerApp Rr.InvokeResponse
-fetchResultHandler authResult tid mode = do
-  liftIO $ putStrLn $ "@[fetchResultHandler] tid: " <> show tid <> " mode: " <> show mode
-  liftIO $ Rr.fakeServiceResponse (Ae.toJSON $ TestError "123" "@[fetchResultHandler] Can't decode payload") "ERROR"
+getResponseHandler :: AuthResult ClientInfo -> Maybe UUID -> Maybe Text -> AIServerApp Rr.InvokeResponse
+getResponseHandler authResult mbTid mbMode = do
+  case mbTid of
+    Nothing -> do
+      liftIO $ putStrLn $ "@[getResponseHandler] tid is missing"
+      throwError . InternalErrorAE $ pack "@[getResultHandler] tid is missing"
+    Just tid -> do
+      appEnv <- Gm.ask
+      rezA <- liftIO $ DbB.getResponse appEnv.pgPool_Ctxt tid
+      case rezA of
+        Left err -> do
+          liftIO $ putStrLn $ "@[getResponseHandler] getResponse err: " <> err
+          throwError . InternalErrorAE $ pack err
+        Right aResponse -> do
+          liftIO $ putStrLn $ "@[getResponseHandler] tid: " <> show tid <> " mode: " <> show mbMode
+          pure $ Rr.InvokeResponse {
+            requestID = 0
+            , requestEId = tid
+            , contextID = 0
+            , contextEId = tid
+            , status = "OK"
+            , result = Ae.toJSON aResponse
+          }
+
+
+-- Assets:
+assetHandlers :: AuthResult ClientInfo -> ToServant Cr.AssetRoutes (AsServerT AIServerApp)
+assetHandlers authResult = genericServerT $ Cr.AssetRoutes {
+    getAsset = getAssetHandler authResult
+  }
+
+getAssetHandler :: AuthResult ClientInfo -> UUID -> Maybe Text -> AIServerApp (Headers '[Header "Content-Type" Text] ByteString)
+getAssetHandler authResult assetId mbP = do
+  appEnv <- Gm.ask
+  case appEnv.s3Storage_Ctxt of
+    Nothing -> do
+      liftIO $ putStrLn $ "@[getAssetHandler] s3Storage_Ctxt is not set"
+      throwError . InternalErrorAE $ pack "@[getAssetHandler] s3Storage_Ctxt is not set"
+    Just s3Conn -> do
+      rezA <- liftIO $ DbA.getAsset appEnv.pgPool_Ctxt s3Conn assetId
+      case rezA of
+        Left err -> do
+          liftIO $ putStrLn $ "@[getAssetHandler] getAsset err: " <> err
+          throwError . InternalErrorAE $ pack err
+        Right (contentType, assetData) -> do
+          liftIO $ putStrLn $ "@[getAssetHandler] assetId: " <> show assetId <> " p: " <> show mbP
+          pure $ addHeader contentType (Lbs.toStrict assetData)
 
 
 -- Retrieve:

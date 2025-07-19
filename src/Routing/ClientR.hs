@@ -13,7 +13,7 @@ import GHC.Generics (Generic)
 
 import Servant.API.Generic
 import Servant.API (JSON, PlainText, ReqBody, Get, Post, Delete, OctetStream
-          , (:>), Capture, QueryParam,QueryParam', Optional)
+          , (:>), Capture, QueryParam,QueryParam', Optional, Raw, Header, Headers)
 import Servant.Auth.Server (Auth, JWT, BasicAuth)
 
 import Api.Types (ClientInfo, Html)
@@ -33,6 +33,7 @@ data PrivateRoutes route = PrivateRoutes {
   client :: route :- "client" :> ToServantApi ClientRoutes
   , repeat :: route :- "repeat" :> ToServantApi RepeatRoutes
   , invoke :: route :- "invoke" :> ToServantApi InvokeRoutes
+  , asset :: route :- "asset" :> ToServantApi AssetRoutes
   , retrieve :: route :- "retrieve" :> ToServantApi RetrieveRoutes
   , storage :: route :- "storage" :> ToServantApi StorageRoutes
 
@@ -57,8 +58,13 @@ newtype RepeatRoutes route = RepeatRoutes {
 
 data InvokeRoutes route = InvokeRoutes {
   getResource :: route :- "resource" :> ReqBody '[JSON] Rq.ResourceRequest :> Post '[JSON] Rr.InvokeResponse
-  , fetchResult :: route :- "fetch" :> QueryParam"tid" UUID :> QueryParam' '[Optional] "mode" Text :> Get '[JSON] Rr.InvokeResponse
+  , getResponse :: route :- "response" :> QueryParam "tid" UUID :> QueryParam' '[Optional] "mode" Text :> Get '[JSON] Rr.InvokeResponse
   , invokeService :: route :- ReqBody '[JSON] Rq.InvokeRequest :> Post '[JSON] Rr.InvokeResponse
+  }
+  deriving (Generic)
+
+newtype AssetRoutes route = AssetRoutes {
+  getAsset :: route :-  Capture "assetId" UUID :> QueryParam' '[Optional] "p" Text :> Get '[OctetStream] (Headers '[Header "Content-Type" Text] ByteString)
   }
   deriving (Generic)
 

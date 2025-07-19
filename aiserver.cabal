@@ -82,6 +82,7 @@ library
     , bytestring
     , case-insensitive
     , conduit
+    , conduit-extra
     , containers
     , directory
     , distributed-process
@@ -145,6 +146,7 @@ executable aiserver
     , bytestring
     , case-insensitive
     , conduit
+    , conduit-extra
     , containers
     , directory
     , distributed-process
@@ -209,6 +211,7 @@ test-suite aiserver-test
     , bytestring
     , case-insensitive
     , conduit
+    , conduit-extra
     , containers
     , directory
     , distributed-process

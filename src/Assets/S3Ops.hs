@@ -1,6 +1,7 @@
 module Assets.S3Ops where
 
-import Data.Conduit (ConduitM, ConduitT)
+import Data.Conduit (ConduitM, ConduitT, runConduitRes)
+import Data.Conduit.Binary (sinkLbs)
 import Control.Monad.Reader (runReaderT)
 
 import qualified Data.ByteString.Lazy as Lbs
@@ -113,7 +114,17 @@ getFileB s3Conf locator filePath = do
     Left e -> pure . Left $ "@[getFileB] file download failed due to " ++ show e
     Right () -> pure $ Right ()
 
-
+getStream :: S3Conn -> Text -> IO (Either String Lbs.ByteString)
+getStream s3Conf locator = do
+  rezA <-Mn.runMinio s3Conf.connInfoCn $ do
+      objData <- Mn.getObject s3Conf.bucketCn locator Mn.defaultGetObjectOptions
+      let
+        objInfo = Mn.gorObjectInfo objData
+      -- liftIO $ putStrLn $ "@[getFileB] size: " <> show (Mn.oiSize objInfo) <> ", modTime: " <> show (Mn.oiModTime objInfo)
+      runConduit $ Mn.gorObjectStream objData .| sinkLbs
+  case rezA of
+    Left err -> pure . Left $ "@[getStream] file download failed due to " ++ show err
+    Right lbs -> pure $ Right lbs
 
 listFiles :: S3Conn -> Maybe Text -> IO (Either String [FilePath])
 listFiles s3Conf path = do

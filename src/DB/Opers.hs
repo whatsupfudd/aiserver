@@ -173,6 +173,13 @@ rkToInt32 Base64RK = 3
 rkToInt32 MarkdownRK = 4
 rkToInt32 AssetRK = 5
 
+int32ToRk :: Int32 -> ResponseKind
+int32ToRk 1 = PlainTextRK
+int32ToRk 2 = JsonRK
+int32ToRk 3 = Base64RK
+int32ToRk 4 = MarkdownRK
+int32ToRk 5 = AssetRK
+
 
 insertResponse :: Pool -> Rr.InvokeResponse -> ResponseKind -> Maybe Text -> IO (Either String (Int32, UUID))
 insertResponse pgPool invR kind mbResult = do
@@ -188,10 +195,54 @@ insertResponse pgPool invR kind mbResult = do
     Right (uid, eid) ->
       pure $ Right (uid, eid)
 
-linkAssetToResponse :: Pool -> Int32 -> UUID -> IO (Either String Int32)
+getResponse :: Pool -> UUID -> IO (Either String Rr.ResponseResponse)
+getResponse pgPool requestEID = do
+  rezA <- use pgPool $ statement requestEID [TH.maybeStatement|
+    select
+      a.uid::int4, a.eid::uuid, a.kind::int4, a.content::text?, c.eid::uuid?, c.size::int8?
+    from cresponse a
+     join crequest d on a.crequest_fk = d.uid
+     left join assetresponselink b on a.uid = b.response_fk
+     left join asset c on b.asset_fk = c.uid
+    where d.eid = $1::uuid
+  |]
+  case rezA of
+    Left err ->
+      pure . Left $ "@[getResponse] err: " <> show err
+    Right Nothing -> pure . Right $ Rr.ResponseResponse {
+        responseEId = requestEID
+        , result = Rr.NoResponseYetRK
+      }
+    Right (Just (uid, eid, kind, mbContent, mbAssetEid, mbAssetSize)) ->
+      let
+        responseContent = if kind `elem` [1,2,3,4] then
+            case mbContent of
+              Nothing -> Rr.NoResponseYetRK
+              Just content ->
+                let
+                  tBlockFormat = case int32ToRk kind of
+                    PlainTextRK -> Rr.PlainTextTF
+                    JsonRK -> Rr.JsonTF
+                    Base64RK -> Rr.Base64TF
+                    MarkdownRK -> Rr.MarkdownTF
+                    _ -> Rr.PlainTextTF
+                in
+                Rr.TextBlockRK tBlockFormat content
+          else
+            case mbAssetEid of
+              -- TODO: manage this better, the response should exist only after the asset has been created
+              Nothing -> Rr.NoResponseYetRK
+              Just assetEid ->
+                Rr.AssetRK mbContent mbAssetSize assetEid
+      in
+      pure . Right $ Rr.ResponseResponse {
+        responseEId = eid
+        , result = responseContent
+      }
+linkAssetToResponse :: Pool -> Int32 -> Int32 -> IO (Either String Int32)
 linkAssetToResponse pgPool responseID assetID = do
   rezA <- use pgPool $ statement (responseID, assetID) [TH.singletonStatement|
-    insert into assetResponseLink (response_fk, asset_fk) values ($1::int4, $2::uuid)
+    insert into assetResponseLink (response_fk, asset_fk) values ($1::int4, $2::int4)
     returning uid::int4
   |]
   case rezA of

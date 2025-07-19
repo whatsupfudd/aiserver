@@ -76,6 +76,7 @@ dependencies:
   - minio-hs
   - scientific
   - conduit
+  - conduit-extra
   - unliftio
   # For Job Queue:
   - stm
