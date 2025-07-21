@@ -4,12 +4,14 @@ module Service.Opers where
 
 import Control.Concurrent (forkIO)
 import Control.Monad.IO.Class (liftIO)
-import Control.Monad (void)
+import Control.Monad (void, foldM)
 
 import qualified Data.ByteString.Lazy as Lbs
+import qualified Data.Either as Ei
 import Data.Int (Int32)
 import qualified Data.Map as Mp
-import Data.Text (Text, unpack, pack)
+import Data.Maybe (isNothing)
+import Data.Text (Text, unpack, pack, toLower)
 import qualified Data.Text.Encoding as T
 import qualified Data.Vector as Vc
 import Data.UUID (UUID)
@@ -29,7 +31,9 @@ import qualified Service.DbOps as Sdb
 import Service.Types
 
 import qualified Service.ElevenLabs as XiL
-
+import qualified Service.Flux as Flx
+import qualified Service.Anthropic as Ant
+import qualified Service.GoogleAI as Gai
 
 processInvocation :: At.AppEnv -> At.ClientInfo -> Rq.InvokeRequest -> IO (Either String Rr.InvokeResponse)
 processInvocation appEnv clientInfo request = do
@@ -116,21 +120,18 @@ spanInvocation srvCtxt request tranz = do
     putStrLn $ "@[spanInvocation] request: " <> show request
     putStrLn $ "@[spanInvocation] tranz: " <> show tranz
     -- rezA <- Sdb.getServiceForFunction dbPool request.function
-    rezA <- case srvCtxt.serviceD.name of
-      "claudeai" -> do
-        putStrLn "@[spanInvocation] claudeai."
-        pure $ Left "@[spanInvocation] claudeai is not implemented."
+    rezA <- case toLower srvCtxt.serviceD.name of
+      "anthropic" -> do
+        Ant.spanInvocation srvCtxt request tranz
       "deepseek" -> do
         putStrLn "@[spanInvocation] deepseek."
         pure $ Left "@[spanInvocation] deepseek is not implemented."
       "elevenlabs" -> do
         XiL.spanInvocation srvCtxt request tranz
       "flux" -> do
-        putStrLn "@[spanInvocation] flux."
-        pure $ Left "@[spanInvocation] flux is not implemented."
-      "gemini" -> do
-        putStrLn "@[spanInvocation] gemini."
-        pure $ Left "@[spanInvocation] gemini is not implemented."
+        Flx.spanInvocation srvCtxt request tranz
+      "googleai" -> do
+        Gai.spanInvocation srvCtxt request tranz
       "groq" -> do
         putStrLn "@[spanInvocation] groq."
         pure $ Left "@[spanInvocation] groq is not implemented."
@@ -151,32 +152,77 @@ spanInvocation srvCtxt request tranz = do
         pure $ Left $ "@[spanInvocation] unknown handler for: " <> show srvCtxt.serviceD.name
     case rezA of
       Left err -> do
-        putStrLn $ "@[spanInvocation] spanInvocation err: " <> err
-      Right result -> do
-        rezB <- case result of
-          AssetSR asset -> do
-            putStrLn "@[spanInvocation] AssetSR"
-            case asset.uid of
-              Nothing -> do
-                Db.endTransaction srvCtxt.dbPool tranz (Db.FailedTS "@[spanInvocation] AssetSR: no uid")
-                pure $ Left "@[spanInvocation] AssetSR: no uid"
-              Just assetID -> do
-                Db.insertResponse srvCtxt.dbPool tranz Db.AssetRK Nothing >>= \case
-                  Left err -> do
-                    putStrLn $ "@[spanInvocation] insertResponse (asset) err: " <> err
-                    pure . Left $ "@[spanInvocation] insertResponse (asset) err: " <> err
-                  Right (uid, eid) -> do
-                    Db.linkAssetToResponse srvCtxt.dbPool uid assetID >>= \case
-                      Left err -> do
-                        putStrLn $ "@[spanInvocation] linkAssetToResponse err: " <> err
-                        pure . Left $ "@[spanInvocation] linkAssetToResponse err: " <> err
-                      Right _ -> pure $ Right (uid, eid)
-          TextReplySR rKind someText -> do
-            putStrLn "@[spanInvocation] TextReplySR"
-            Db.insertResponse srvCtxt.dbPool tranz (replyKindToDbKind rKind) (Just someText)
-          ComplexReplySR aValue-> do
-            putStrLn "@[spanInvocation] ComplexReplySR"
-            Db.insertResponse srvCtxt.dbPool tranz Db.JsonRK (Just . T.decodeUtf8 . Lbs.toStrict $ Ae.encode aValue)
+        putStrLn $ "@[spanInvocation] service " <> show srvCtxt.serviceD.name <> " err: " <> err
+      Right results ->
+        let
+          (assets, texts) = foldl (\(aAccum, tAccum) aResult ->
+            case aResult of
+              AssetSR asset -> (aResult :aAccum, tAccum)
+              TextReplySR rKind someText -> (aAccum, aResult : tAccum)
+              -- TODO: Deal with ComplexReplySR:
+              _ -> (aAccum, tAccum)
+            )  ([], []) results
+        in do
+        rezB <- case texts of
+          [] ->
+            mapM (\case
+                AssetSR asset ->
+                  saveAsset asset
+                _ -> pure $ Left "@[spanInvocation] not an AssetSR in asset list."
+              ) assets
+          _ ->
+            case assets of
+              [] ->
+                mapM (\case
+                    TextReplySR rKind someText ->
+                      Db.insertResponse srvCtxt.dbPool tranz (replyKindToDbKind rKind) (Just someText)
+                    _ -> pure $ Left "@[spanInvocation] not a TextReplySR in text list."
+                ) texts
+              _ ->
+                let
+                  fullText = foldl (\accum aText ->
+                    case aText of
+                      TextReplySR rKind someText ->
+                        if isNothing accum then Just someText else (<> someText) <$> accum
+                      _ -> accum
+                    ) Nothing texts
+                in
+                mapM (\case
+                  AssetSR asset ->
+                    saveAsset asset
+                  _ -> pure $ Left "@[spanInvocation] not an AssetSR in asset list."
+                  ) assets
+        case Ei.lefts rezB of
+          [] -> do
+            Db.endTransaction srvCtxt.dbPool tranz Db.CompletedTS
+          errs ->
+            let
+              errMsg = "@[spanInvocation] serialization of ServiceResults err: " <> show errs
+            in do
+            putStrLn errMsg
+            Db.endTransaction srvCtxt.dbPool tranz (Db.FailedTS (pack errMsg))
+        pure ()
+  where
+  saveAsset :: Ast.Asset -> IO (Either String (Int32, UUID))
+  saveAsset anAsset = do
+    putStrLn "@[spanInvocation] AssetSR"
+    case anAsset.uid of
+      Nothing -> do
+        Db.endTransaction srvCtxt.dbPool tranz (Db.FailedTS "@[spanInvocation] AssetSR: no uid")
+        pure $ Left "@[spanInvocation] AssetSR: no uid"
+      Just assetID -> do
+        Db.insertResponse srvCtxt.dbPool tranz Db.AssetRK Nothing >>= \case
+          Left err -> do
+            putStrLn $ "@[spanInvocation] insertResponse (asset) err: " <> err
+            pure . Left $ "@[spanInvocation] insertResponse (asset) err: " <> err
+          Right (uid, eid) -> do
+            Db.linkAssetToResponse srvCtxt.dbPool uid assetID >>= \case
+              Left err -> do
+                putStrLn $ "@[spanInvocation] linkAssetToResponse err: " <> err
+                pure . Left $ "@[spanInvocation] linkAssetToResponse err: " <> err
+              Right _ -> pure . Right $ (uid, eid)
+
+{-
         case rezB of
           Left err -> do
             putStrLn $ "@[spanInvocation] insertResponse err: " <> err
@@ -184,6 +230,16 @@ spanInvocation srvCtxt request tranz = do
             Db.endTransaction srvCtxt.dbPool tranz Db.CompletedTS
             pure ()
 
+          case result of
+            AssetSR asset ->
+              putStrLn $ "@[spanInvocation] AssetSR: " <> show asset
+            TextReplySR rKind someText -> do
+              putStrLn "@[spanInvocation] TextReplySR"
+              Db.insertResponse srvCtxt.dbPool tranz (replyKindToDbKind rKind) (Just someText)
+            ComplexReplySR aValue-> do
+              putStrLn "@[spanInvocation] ComplexReplySR"
+              Db.insertResponse srvCtxt.dbPool tranz Db.JsonRK (Just . T.decodeUtf8 . Lbs.toStrict $ Ae.encode aValue)
+-}
 
 replyKindToDbKind :: ReplyKind -> Db.ResponseKind
 replyKindToDbKind aRKind =

@@ -1,6 +1,3 @@
-{-# LANGUAGE DeriveGeneric #-}
-{-# LANGUAGE LambdaCase #-}
-
 module Service.ElevenLabs where
 
 import qualified Data.ByteString.Lazy as Lbs
@@ -21,8 +18,6 @@ import qualified Network.HTTP.Client.TLS as Hct
 import qualified Network.HTTP.Types.Status as Hs
 
 import qualified Data.Aeson as Ae
-import qualified Data.Aeson.KeyMap as Ak
-import qualified Data.Aeson.Key as Ak
 
 import qualified Api.RequestTypes as Rq
 import qualified Api.ResponseTypes as Rr
@@ -36,7 +31,7 @@ import qualified Service.DbOps as Sdb
 import Service.Types
 import Control.Concurrent (threadDelay)
 
-spanInvocation :: ServiceContext -> Rq.InvokeRequest -> Rr.InvokeResponse -> IO (Either String ServiceResult)
+spanInvocation :: ServiceContext -> Rq.InvokeRequest -> Rr.InvokeResponse -> IO (Either String [ServiceResult])
 spanInvocation srvCtxt request tranz = do
   if srvCtxt.functionD.label `L.elem` ["text_to_speech", "list_voices", "list_models"] then do
     handleRequestFor srvCtxt request
@@ -72,37 +67,8 @@ data InvokeRequest = InvokeRequest {
 
 -}
 
-data ParameterValue = ParameterValue {
-    name :: Text
-  , value :: Text
-  } deriving (Show, Eq, Generic)
 
-instance Ae.FromJSON ParameterValue where
-  parseJSON (Ae.Object o) =
-    let
-      (label, value) = head $ Ak.toList o
-      ident = case value of
-        Ae.String s -> s
-        Ae.Null -> ""
-        _ -> "[ParameterValue.parseJSON] Invalid fct value: " <> (pack . show) value
-    in
-      pure (ParameterValue (pack . Ak.toString $ label) ident)
-
-
-newtype ParamContainer = ParamContainer {
-    params :: [ ParameterValue ]
-  } deriving (Show, Eq, Generic)
-
-
-instance Ae.FromJSON ParamContainer where
-  parseJSON (Ae.Object o) =
-    let
-      paramList = [ ParameterValue (pack $ Ak.toString k) v | (k, Ae.String v) <- Ak.toList o ]
-    in pure $ ParamContainer paramList
-  parseJSON _ = fail "ParamContainer: Expected an object"
-
-
-handleRequestFor :: ServiceContext -> Rq.InvokeRequest ->  IO (Either String ServiceResult)
+handleRequestFor :: ServiceContext -> Rq.InvokeRequest ->  IO (Either String [ServiceResult])
 handleRequestFor srvCtxt request =
   case srvCtxt.functionD.label of
     "text_to_speech" -> do
@@ -146,7 +112,7 @@ handleRequestFor srvCtxt request =
                   pure $ Left "Error inserting asset"
                 Right updAsset -> do
                   putStrLn $ "Asset inserted: " <> show updAsset
-                  pure . Right $ AssetSR updAsset
+                  pure . Right $ [ AssetSR updAsset ]
     "list_voices" -> do
       manager <- Hc.newManager Hct.tlsManagerSettings
       initialRequest <- Hc.parseRequest "https://api.elevenlabs.io/v2/voices"
@@ -157,7 +123,7 @@ handleRequestFor srvCtxt request =
       response <- Hc.httpLbs request manager
       case Hs.statusCode response.responseStatus of
         200 ->
-          pure . Right . TextReplySR JsonRK . T.decodeUtf8 $ Lbs.toStrict response.responseBody
+          pure . Right $ [ TextReplySR JsonRK . T.decodeUtf8 $ Lbs.toStrict response.responseBody ]
         _ ->
           pure . Left $ "@[handleRequestFor] list_voices err: " <> (show . Hs.statusCode) response.responseStatus
     "list_models" -> do
@@ -170,31 +136,9 @@ handleRequestFor srvCtxt request =
       response <- Hc.httpLbs request manager
       case Hs.statusCode response.responseStatus of
         200 ->
-          pure . Right . TextReplySR JsonRK. T.decodeUtf8 $ Lbs.toStrict response.responseBody
+          pure . Right $ [ TextReplySR JsonRK . T.decodeUtf8 $ Lbs.toStrict response.responseBody ]
         _ ->
           pure . Left $ "@[handleRequestFor] list_voices err: " <> (show . Hs.statusCode) response.responseStatus
     _ ->
       pure . Left $ "@[handleRequestFor] ElevenLabs: function not supported: " <> unpack srvCtxt.functionD.label
 
-
-extractInvokeItems :: Rq.InvokeRequest -> Either String (Mp.Map Text Text, Text)
-extractInvokeItems request = do
-  case Ae.fromJSON request.parameters :: Ae.Result ParamContainer of
-    Ae.Error err ->
-      let
-        errMsg = "@[extractInvokeItems] Error parsing parameters: " <> err
-      in
-      Left errMsg
-    Ae.Success paramContainer ->
-      let
-        paramMap = Mp.fromList [ (p.name, p.value) | p <- paramContainer.params ]
-      in
-      case Ae.fromJSON request.content :: Ae.Result Text of
-        Ae.Error err ->
-          let
-            errMsg = "@[extractInvokeItems] Error parsing content: " <> err
-          in
-            Left errMsg
-        Ae.Success line ->
-          Right (paramMap, line)
-          

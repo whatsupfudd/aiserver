@@ -51,12 +51,12 @@ library
       Routing.ClientR
       Routing.TopDefs
       Routing.TopHandlers
-      Service.Claude
+      Service.Anthropic
       Service.DbOps
       Service.DeepSeek
       Service.ElevenLabs
       Service.Flux
-      Service.Gemini
+      Service.GoogleAI
       Service.Grok
       Service.JobManager
       Service.Kimi
@@ -78,6 +78,7 @@ library
   build-depends:
       aeson
     , base >=4.7 && <5
+    , base64-bytestring
     , binary
     , bytestring
     , case-insensitive
@@ -142,6 +143,7 @@ executable aiserver
       aeson
     , aiserver
     , base >=4.7 && <5
+    , base64-bytestring
     , binary
     , bytestring
     , case-insensitive
@@ -207,6 +209,7 @@ test-suite aiserver-test
       aeson
     , aiserver
     , base >=4.7 && <5
+    , base64-bytestring
     , binary
     , bytestring
     , case-insensitive

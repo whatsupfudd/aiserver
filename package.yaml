@@ -72,12 +72,12 @@ dependencies:
   # For catching errors from Servant:
   - exceptions
   # For Minio (S3):
-  # For MinIO:
   - minio-hs
   - scientific
   - conduit
   - conduit-extra
   - unliftio
+  - base64-bytestring
   # For Job Queue:
   - stm
   # For Distributed Computing:

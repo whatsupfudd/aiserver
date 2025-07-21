@@ -2,10 +2,16 @@
 
 module Assets.Storage where
 
+import qualified Data.ByteString.Lazy as Lbs
+import qualified Data.ByteString as Bs
 import Data.Int (Int32, Int64)
 import Data.Text (Text, pack)
+import qualified Data.Text as T
 import qualified Data.UUID as Uu
 import qualified Data.UUID.V4 as Uu
+import qualified Data.Text.Encoding as T
+
+import qualified Data.ByteString.Base64 as B64
 
 import Hasql.Session (Session, statement)
 import Hasql.Pool (Pool, use)
@@ -16,7 +22,6 @@ import qualified Network.HTTP.Types.Status as Hs
 
 import qualified Assets.S3Ops as Ops
 import Assets.Types
-import qualified Data.ByteString.Lazy as Lbs
 
 
 {-
@@ -54,6 +59,33 @@ insertNewAsset pgPool s3Conn manager request asset = do
     Left err ->
       pure . Left $ "@[insertNewAsset] streamHttpResponseToS3 err: " <> show err
     Right aSize -> do
+      rezB <- use pgPool $ statement (asset.name, asset.eid, asset.description, asset.contentType, aSize, asset.notes) [TH.singletonStatement|
+        insert into Asset
+          (name, eid, description, contentType, size, notes)
+        values
+          ($1::text?, $2::uuid, $3::text?, $4::text, $5::bigint, $6::text?)
+        returning uid::int4
+      |]
+      case rezB of
+        Left err ->
+          pure . Left $ "@[insertAsset] err: " <> show err
+        Right anID ->
+          pure . Right $ asset { uid = Just anID, size = aSize }
+
+
+insertNewAssetFromB64 :: Pool -> S3Conn -> Text -> Asset -> IO (Either String Asset)
+insertNewAssetFromB64 pgPool s3Conn b64Text asset =
+  let
+    rawText = B64.decodeLenient $ T.encodeUtf8 b64Text
+  in do
+  rezA <- Ops.putFromText s3Conn (pack . Uu.toString $ asset.eid) rawText Nothing
+  case rezA of
+    Left err ->
+      pure . Left $ "@[insertNewAssetFromText] putStream err: " <> show err
+    Right _ ->
+      let
+        aSize = fromIntegral $ Bs.length rawText
+      in do
       rezB <- use pgPool $ statement (asset.name, asset.eid, asset.description, asset.contentType, aSize, asset.notes) [TH.singletonStatement|
         insert into Asset
           (name, eid, description, contentType, size, notes)

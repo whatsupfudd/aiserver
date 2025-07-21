@@ -1,6 +1,6 @@
 module Assets.S3Ops where
 
-import Data.Conduit (ConduitM, ConduitT, runConduitRes)
+import Data.Conduit (ConduitM, ConduitT, runConduitRes, yield)
 import Data.Conduit.Binary (sinkLbs)
 import Control.Monad.Reader (runReaderT)
 
@@ -24,6 +24,7 @@ import qualified Network.HTTP.Types.Status as Hs
 import qualified Network.Minio as Mn
 
 import Assets.Types
+import qualified Data.Text.Encoding as T
 
 
 makeS3Conn :: S3Config -> S3Conn
@@ -70,6 +71,15 @@ putStream :: S3Conn -> Text -> ConduitT () Bs.ByteString Mn.Minio () -> Maybe In
 putStream s3Conf locator sink mbSize = do
   res <- Mn.runMinio s3Conf.connInfoCn $ do
     Mn.putObject s3Conf.bucketCn locator sink mbSize Mn.defaultPutObjectOptions
+  case res of
+    Left e -> pure . Left $ "@[putStream] file upload failed due to " ++ show e
+    Right () -> pure $ Right ()
+
+
+putFromText :: S3Conn -> Text -> Bs.ByteString -> Maybe Int64 -> IO (Either String ())
+putFromText s3Conf locator textData mbSize = do
+  res <- Mn.runMinio s3Conf.connInfoCn $ do
+    Mn.putObject s3Conf.bucketCn locator (yield textData) mbSize Mn.defaultPutObjectOptions
   case res of
     Left e -> pure . Left $ "@[putStream] file upload failed due to " ++ show e
     Right () -> pure $ Right ()
