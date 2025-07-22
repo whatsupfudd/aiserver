@@ -227,13 +227,13 @@ getResponse pgPool requestEID = do
                     MarkdownRK -> Rr.MarkdownTF
                     _ -> Rr.PlainTextTF
                 in
-                Rr.TextBlockRK tBlockFormat content
+                Rr.TextBlockRK (Rr.TextBlockRV tBlockFormat content)
           else
             case mbAssetEid of
               -- TODO: manage this better, the response should exist only after the asset has been created
               Nothing -> Rr.NoResponseYetRK
               Just assetEid ->
-                Rr.AssetRK mbContent mbAssetSize assetEid
+                Rr.AssetRK (Rr.AssetRV mbContent mbAssetSize assetEid)
       in
       pure . Right $ Rr.ResponseResponse {
         responseEId = eid

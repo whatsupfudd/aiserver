@@ -89,6 +89,19 @@ data TBlockFormat =
 
 data ResponseKind =
   NoResponseYetRK
-  | TextBlockRK { format :: TBlockFormat, content :: Text }
-  | AssetRK { notes :: Maybe Text, size :: Maybe Int64, assetEId :: UUID }
+  | TextBlockRK TextBlockRV
+  | AssetRK AssetRV
+  deriving (Show, Eq, Generic, Ae.ToJSON)
+
+data TextBlockRV = TextBlockRV {
+    format :: TBlockFormat
+  , content :: Text
+  }
+  deriving (Show, Eq, Generic, Ae.ToJSON)
+
+data AssetRV = AssetRV {
+    notes :: Maybe Text
+  , size :: Maybe Int64
+  , assetEId :: UUID
+  }
   deriving (Show, Eq, Generic, Ae.ToJSON)

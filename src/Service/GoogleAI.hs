@@ -600,7 +600,7 @@ curl "https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:g
     200 -> do
       case Ae.eitherDecode rezA.responseBody :: Either String ApiReplyC of
         Left err ->
-          pure $ Left $ "@[handleRequestFor] Gemini: text_to_speech error: " <> err
+          pure $ Left $ "@[handleRequestFor] Gemini/message err: " <> err
         Right response -> do
           let
             candidate0 = head response.candidates
@@ -639,7 +639,7 @@ textToImage (srvCtxt, manager) params content =
     200 -> do
       case Ae.eitherDecode rezA.responseBody :: Either String ApiReplyC of
         Left err ->
-          pure $ Left $ "@[handleRequestFor] Gemini: text_to_image error: " <> err
+          pure $ Left $ "@[handleRequestFor] Gemini/text_to_image err: " <> err
         Right response ->
           saveData srvCtxt response "Gemini/TTI"
     _ -> pure $ Left $ "@[handleRequestFor] http err: " <> show (Hs.statusCode rezA.responseStatus) <> "\n body: " <> (unpack . T.decodeUtf8 . Lbs.toStrict) rezA.responseBody
@@ -678,7 +678,7 @@ textToSpeech (srvCtxt, manager) params content =
     200 -> do
       case Ae.eitherDecode rezA.responseBody :: Either String ApiReplyC of
         Left err ->
-          pure $ Left $ "@[handleRequestFor] Gemini: text_to_speech error: " <> err
+          pure $ Left $ "@[handleRequestFor] Gemini/text_to_speech err: " <> err
         Right response -> do
           saveData srvCtxt response "Gemini/TTS"
     _ -> pure $ Left $ "@[handleRequestFor] http err: " <> show (Hs.statusCode rezA.responseStatus) <> "\n body: " <> (unpack . T.decodeUtf8 . Lbs.toStrict) rezA.responseBody
@@ -688,10 +688,10 @@ saveData :: ServiceContext -> ApiReplyC -> Text -> IO (Either String [ServiceRes
 saveData srvCtxt response fctType =
   case response.candidates of
   [] ->
-    pure $ Left $ "@[handleRequestFor] Gemini: text_to_speech error: no candidates"
+    pure $ Left $ "@[saveData] save data err: no candidates."
   candidate : _ ->
     if L.null candidate.content.parts then
-      pure $ Left $ "@[handleRequestFor] Gemini: text_to_speech error: no parts"
+      pure $ Left $ "@[saveData] save data err: no parts."
     else do
       eiRezB <- mapM (\part ->
         case part of
@@ -701,19 +701,19 @@ saveData srvCtxt response fctType =
             newID <- Uu.nextRandom
             let
               newAsset = S3.prepareNewAsset newID fctType inlineData.mimeType 
-            -- putStrLn $ "@[handleRequestFor] parts0.inlineData.data_: " <> show parts0.inlineData.data_
+            -- putStrLn $ "@[saveData] parts0.inlineData.data_: " <> show parts0.inlineData.data_
             rezA <- S3.insertNewAssetFromB64 srvCtxt.dbPool srvCtxt.s3Conn inlineData.data_ newAsset
             case rezA of
               Left err ->
                 let
-                  errMsg = "@[fetchAsset] Error inserting asset: " <> err
+                  errMsg = "@[saveData] Error inserting asset: " <> err
                 in do
                 putStrLn errMsg
                 pure $ Left errMsg
               Right updAsset -> do
-                putStrLn $ "@[fetchAsset] Asset inserted: " <> show updAsset
+                putStrLn $ "@[saveData] Asset inserted: " <> show updAsset
                 pure . Right $ AssetSR updAsset
-          _ -> pure $ Left $ "@[handleRequestFor] Gemini: text_to_speech error: illegal part: " <> show part
+          _ -> pure $ Left $ "@[saveData] illegal part: " <> show part
         ) candidate.content.parts
       case Ei.lefts eiRezB of
         [] ->
@@ -722,5 +722,5 @@ saveData srvCtxt response fctType =
           in do
           pure . Right $ rezValues
         errs ->
-          pure $ Left $ "@[handleRequestFor] Gemini: text_to_speech error: " <> show errs
+          pure $ Left $ "@[saveData] saving candidates err: " <> show errs
  
