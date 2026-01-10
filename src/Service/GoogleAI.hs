@@ -182,7 +182,7 @@ curl https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:ge
   }'
 
 Text to Image:
-curl -s -X POST 
+curl -s -X POST
   "https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash-preview-image-generation:generateContent" \
   -H "x-goog-api-key: $GEMINI_API_KEY" \
   -H "Content-Type: application/json" \
@@ -632,6 +632,7 @@ textToImage (srvCtxt, manager) params content =
         Hc.method = "POST"
         , Hc.requestHeaders = [("x-goog-api-key", srvCtxt.apiKey), ("Content-Type", "application/json")]
         , Hc.requestBody = Hc.RequestBodyLBS $ Ae.encode speechReq
+        , Hc.responseTimeout = Hc.responseTimeoutMicro (4 * 60 * 1000000)
       }
   -- putStrLn $ "Request: " <> show request
   rezA <- Hc.httpLbs request manager
@@ -671,8 +672,9 @@ textToSpeech (srvCtxt, manager) params content =
         Hc.method = "POST"
         , Hc.requestHeaders = [("x-goog-api-key", srvCtxt.apiKey), ("Content-Type", "application/json")]
         , Hc.requestBody = Hc.RequestBodyLBS $ Ae.encode speechReq
+        , Hc.responseTimeout = Hc.responseTimeoutMicro (4 * 60 * 1000000)
       }
-  -- putStrLn $ "Request: " <> show request
+  putStrLn $ "@[textToSpeech] request: " <> show request
   rezA <- Hc.httpLbs request manager
   case Hs.statusCode rezA.responseStatus of
     200 -> do
@@ -700,7 +702,7 @@ saveData srvCtxt response fctType =
           InlinePC inlineData -> do
             newID <- Uu.nextRandom
             let
-              newAsset = S3.prepareNewAsset newID fctType inlineData.mimeType 
+              newAsset = S3.prepareNewAsset newID fctType inlineData.mimeType
             -- putStrLn $ "@[saveData] parts0.inlineData.data_: " <> show parts0.inlineData.data_
             rezA <- S3.insertNewAssetFromB64 srvCtxt.dbPool srvCtxt.s3Conn inlineData.data_ newAsset
             case rezA of
@@ -717,10 +719,9 @@ saveData srvCtxt response fctType =
         ) candidate.content.parts
       case Ei.lefts eiRezB of
         [] ->
-          let 
+          let
             rezValues = Ei.rights eiRezB
           in do
           pure . Right $ rezValues
         errs ->
           pure $ Left $ "@[saveData] saving candidates err: " <> show errs
- 

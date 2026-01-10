@@ -26,6 +26,7 @@ data Command =
   HelpCmd
   | VersionCmd
   | ServerCmd
+  | TestCmd Text
   deriving stock (Show)
 
 {- HERE: Additional structures for holding new command parameters:
@@ -93,9 +94,10 @@ commandDefs :: Mod CommandFields Command
 commandDefs =
   let
     cmdArray = [
-      ("help", HelpCmd, "Help about any command.")
-      , ("version", VersionCmd, "Shows the version number of importer.")
-      , ("server", ServerCmd, "A high performance web server.")
+      ("help", pure HelpCmd, "Help about any command.")
+      , ("version", pure VersionCmd, "Shows the version number of importer.")
+      , ("server", pure ServerCmd, "A high performance web server.")
+      , ("test", testOpts, "Test a feature.")
       ]
     headArray = head cmdArray
     tailArray = tail cmdArray
@@ -103,12 +105,9 @@ commandDefs =
     foldl (\accum aCmd -> cmdBuilder aCmd <> accum) (cmdBuilder headArray) tailArray
   where
     cmdBuilder (label, cmdDef, desc) =
-      command label (info (pure cmdDef) (progDesc desc))
+      command label (info cmdDef (progDesc desc))
 
-{- HERE: additional options parser:
-Eg:
-importOpts :: Parser Command
-importOpts =
-  ImportCmd <$> strArgument (metavar "TAXO" <> help "Taxonomy root where paths are inserted.")
-    <*> strArgument (metavar "PATH" <> help "Directory to import into Beebod.")
--}
+
+testOpts :: Parser Command
+testOpts =
+  TestCmd <$> strArgument (metavar "SUBCMD" <> help "A subcommand")

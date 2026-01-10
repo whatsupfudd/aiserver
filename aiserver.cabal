@@ -37,6 +37,7 @@ library
       Commands
       Commands.Help
       Commands.Server
+      Commands.Test
       Commands.Version
       DB.Connect
       DB.Opers
