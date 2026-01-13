@@ -91,6 +91,7 @@ data ResponseKind =
   NoResponseYetRK
   | TextBlockRK TextBlockRV
   | AssetRK AssetRV
+  | AbortedRK Text
   deriving (Show, Eq, Generic, Ae.ToJSON)
 
 data TextBlockRV = TextBlockRV {

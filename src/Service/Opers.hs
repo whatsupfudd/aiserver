@@ -151,8 +151,13 @@ spanInvocation srvCtxt request tranz = do
         putStrLn $ "@[spanInvocation] unknown handler for: " <> show srvCtxt.serviceD.name
         pure $ Left $ "@[spanInvocation] unknown handler for: " <> show srvCtxt.serviceD.name
     case rezA of
-      Left err -> do
-        putStrLn $ "@[spanInvocation] service " <> show srvCtxt.serviceD.name <> " err: " <> err
+      Left err ->
+        let
+          errMsg = "@[spanInvocation] service invoke: " <> show srvCtxt.serviceD.name <> ", tranz err: " <> err
+        in do
+        putStrLn errMsg
+        Db.endTransaction srvCtxt.dbPool tranz (Db.FailedTS (pack errMsg))
+        pure ()
       Right results ->
         let
           (assets, texts) = foldl (\(aAccum, tAccum) aResult ->

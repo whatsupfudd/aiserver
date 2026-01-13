@@ -100,6 +100,7 @@ handleRequestFor srvCtxt request =
                   Hc.method = "POST"
                   , Hc.requestBody = Hc.RequestBodyLBS $ Ae.encode requestObject
                   , Hc.requestHeaders = [("xi-api-key", srvCtxt.apiKey), ("Content-Type", "application/json")]
+                  , Hc.responseTimeout = Hc.responseTimeoutMicro (4 * 60 * 1000000)
                   }
               -- putStrLn $ "Request: " <> show request
               assetEid <- Uu.nextRandom
@@ -107,11 +108,14 @@ handleRequestFor srvCtxt request =
                 newAsset = S3.prepareNewAsset assetEid "ElevenLabs" "audio/mp3"
               rezA <- S3.insertNewAsset srvCtxt.dbPool srvCtxt.s3Conn manager request newAsset 
               case rezA of
-                Left err -> do
-                  putStrLn $ "Error inserting asset: " <> err
-                  pure $ Left "Error inserting asset"
+                Left err -> 
+                  let
+                    errMsg = "@[handleRequestFor] Error processing request: " <> err
+                  in do
+                  -- putStrLn errMsg
+                  pure $ Left errMsg
                 Right updAsset -> do
-                  putStrLn $ "Asset inserted: " <> show updAsset
+                  -- putStrLn $ "Asset inserted: " <> show updAsset
                   pure . Right $ [ AssetSR updAsset ]
     "list_voices" -> do
       manager <- Hc.newManager Hct.tlsManagerSettings

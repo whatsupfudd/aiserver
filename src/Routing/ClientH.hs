@@ -273,7 +273,7 @@ getResponseHandler :: AuthResult ClientInfo -> Maybe UUID -> Maybe Text -> AISer
 getResponseHandler authResult mbTid mbMode = do
   case mbTid of
     Nothing -> do
-      liftIO $ putStrLn $ "@[getResponseHandler] tid is missing"
+      liftIO . putStrLn $ "@[getResponseHandler] tid is missing"
       throwError . InternalErrorAE $ pack "@[getResultHandler] tid is missing"
     Just tid -> do
       appEnv <- Gm.ask
@@ -284,14 +284,25 @@ getResponseHandler authResult mbTid mbMode = do
           throwError . InternalErrorAE $ pack err
         Right aResponse -> do
           liftIO $ putStrLn $ "@[getResponseHandler] tid: " <> show tid <> " mode: " <> show mbMode
-          pure $ Rr.InvokeResponse {
-            requestID = 0
-            , requestEId = tid
-            , contextID = 0
-            , contextEId = tid
-            , status = "OK"
-            , result = Ae.toJSON aResponse
-          }
+          case aResponse.result of
+            Rr.AbortedRK errMsg ->
+              pure $ Rr.InvokeResponse {
+                requestID = 0
+                , requestEId = tid
+                , contextID = 0
+                , contextEId = tid
+                , status = "ABORT"
+                , result = Ae.toJSON aResponse
+              }
+            _ -> 
+              pure $ Rr.InvokeResponse {
+                requestID = 0
+                , requestEId = tid
+                , contextID = 0
+                , contextEId = tid
+                , status = "OK"
+                , result = Ae.toJSON aResponse
+              }
 
 
 -- Assets:

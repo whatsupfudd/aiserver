@@ -209,10 +209,28 @@ getResponse pgPool requestEID = do
   case rezA of
     Left err ->
       pure . Left $ "@[getResponse] err: " <> show err
-    Right Nothing -> pure . Right $ Rr.ResponseResponse {
-        responseEId = requestEID
-        , result = Rr.NoResponseYetRK
-      }
+    Right Nothing -> do
+      rezB <- use pgPool $ statement requestEID [TH.vectorStatement|
+          select
+            e.created_at::timestamp, e.kind::text, e.notes::text?
+          from crequest d
+          join reqexec e on e.crequest_fk = d.uid
+          where d.eid = $1::uuid and e.kind <> 1
+        |]
+      case rezB of
+        Left err ->
+          pure . Left $ "@[getResponse] err: " <> show err
+        Right execs ->
+          let
+            respResult = if Vc.null execs then
+              Rr.NoResponseYetRK
+            else
+              Rr.AbortedRK (pack $ show execs)
+          in
+          pure . Right $ Rr.ResponseResponse {
+            responseEId = requestEID
+            , result = respResult
+          }
     Right (Just (uid, eid, kind, mbContent, mbAssetEid, mbAssetSize)) ->
       let
         responseContent = if kind `elem` [1,2,3,4] then

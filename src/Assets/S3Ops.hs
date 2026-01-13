@@ -2,7 +2,10 @@ module Assets.S3Ops where
 
 import Data.Conduit (ConduitM, ConduitT, runConduitRes, yield)
 import Data.Conduit.Binary (sinkLbs)
-import Control.Monad.Reader (runReaderT)
+import qualified Control.Monad.Reader as Cmr
+import Control.Monad.IO.Class (liftIO)
+import qualified Control.Exception as Cexc
+
 
 import qualified Data.ByteString.Lazy as Lbs
 import qualified Data.ByteString as Bs
@@ -44,27 +47,31 @@ makeS3Conn conf =
 
 streamHttpResponseToS3 :: S3Conn -> Hc.Manager -> Hcc.Request -> Text -> IO (Either String Int64)
 streamHttpResponseToS3 s3Conn manager request objectKey = do
-  rezA <- runReaderT (Hcc.withResponse request $ \response -> do
-      if Hc.responseStatus response /= Hs.status200
-        then
-          pure . Left $ "HTTP error: " ++ show (Hc.responseStatus response)
-        else do
-          let bodyReader = Hcc.responseBody response
-              mbLen = L.find (\(k, v) -> k == Hh.hContentLength) (Hc.responseHeaders response)
-          -- now call your putStream helper:
-          liftIO $ putStream s3Conn objectKey bodyReader Nothing
-    ) manager
+  rezA <- liftIO . Cexc.try $ Cmr.runReaderT (
+    Hcc.withResponse request $ \response -> do
+        if Hc.responseStatus response /= Hs.status200
+          then
+            pure . Left $ "HTTP error: " ++ show (Hc.responseStatus response)
+          else do
+            let bodyReader = Hcc.responseBody response
+                mbLen = L.find (\(k, v) -> k == Hh.hContentLength) (Hc.responseHeaders response)
+            -- now call your putStream helper:
+            liftIO $ putStream s3Conn objectKey bodyReader Nothing
+    ) manager :: IO (Either Cexc.SomeException (Either String ()))
   case rezA of
-    Left err -> pure . Left $ "@[streamHttpResponseToS3] wiResponse/putStream err: " <> show err
-    Right () -> do
-      eiSize <- Mn.runMinio s3Conn.connInfoCn $ do
-          rezA <- Mn.getObject s3Conn.bucketCn objectKey Mn.defaultGetObjectOptions
-          let
-            objInfo = Mn.gorObjectInfo rezA
-          pure (Mn.oiSize objInfo)
-      case eiSize of
-        Left err -> pure . Left $ "@[streamHttpResponseToS3] getObject err: " <> show err
-        Right size -> pure $ Right size
+    Left err -> pure . Left $ "@[streamHttpResponseToS3] http exception: " <> show err
+    Right innerRez ->
+      case innerRez of
+        Left err -> pure . Left $ "@[streamHttpResponseToS3] withResponse/putStream err: " <> show err
+        Right () -> do
+          eiSize <- Mn.runMinio s3Conn.connInfoCn $ do
+              rezA <- Mn.getObject s3Conn.bucketCn objectKey Mn.defaultGetObjectOptions
+              let
+                objInfo = Mn.gorObjectInfo rezA
+              pure (Mn.oiSize objInfo)
+          case eiSize of
+            Left err -> pure . Left $ "@[streamHttpResponseToS3] getObject err: " <> show err
+            Right size -> pure $ Right size
 
 
 putStream :: S3Conn -> Text -> ConduitT () Bs.ByteString Mn.Minio () -> Maybe Int64 -> IO (Either String ())
