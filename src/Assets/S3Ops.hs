@@ -49,6 +49,7 @@ streamHttpResponseToS3 :: S3Conn -> Hc.Manager -> Hcc.Request -> Text -> IO (Eit
 streamHttpResponseToS3 s3Conn manager request objectKey = do
   rezA <- liftIO . Cexc.try $ Cmr.runReaderT (
     Hcc.withResponse request $ \response -> do
+        liftIO $ putStrLn $ "@[streamHttpResponseToS3] responseHeaders: " <> show (Hc.responseHeaders response)
         if Hc.responseStatus response /= Hs.status200
           then
             pure . Left $ "HTTP error: " ++ show (Hc.responseStatus response)
