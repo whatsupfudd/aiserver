@@ -34,6 +34,7 @@ import qualified Service.ElevenLabs as XiL
 import qualified Service.Flux as Flx
 import qualified Service.Anthropic as Ant
 import qualified Service.GoogleAI as Gai
+import qualified Service.FishAudio as Fia
 
 processInvocation :: At.AppEnv -> At.ClientInfo -> Rq.InvokeRequest -> IO (Either String Rr.InvokeResponse)
 processInvocation appEnv clientInfo request = do
@@ -128,6 +129,8 @@ spanInvocation srvCtxt request tranz = do
         pure $ Left "@[spanInvocation] deepseek is not implemented."
       "elevenlabs" -> do
         XiL.spanInvocation srvCtxt request tranz
+      "fishaudio" -> do
+        Fia.spanInvocation srvCtxt request tranz
       "flux" -> do
         Flx.spanInvocation srvCtxt request tranz
       "googleai" -> do

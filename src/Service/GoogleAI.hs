@@ -391,6 +391,7 @@ instance Ae.ToJSON ContentC where
 data GenerationConfigC = GenerationConfigC {
     responseModalities :: [Text]
     , speechConfig :: Maybe SpeechConfigC
+    , imageConfig :: Maybe ImageConfigC
   } deriving (Show, Generic)
 
 instance Ae.ToJSON GenerationConfigC where
@@ -410,6 +411,10 @@ newtype PrebuiltVoiceConfigC = PrebuiltVoiceConfigC {
   } deriving (Show, Generic, Ae.ToJSON)
 
 
+data ImageConfigC = ImageConfigC {
+    aspectRatio :: Text
+    , imageSize :: Text
+  } deriving (Show, Generic, Ae.ToJSON)
 
 {-
 JSON reply for a Text-To-Speech request:
@@ -616,13 +621,14 @@ curl "https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:g
 textToImage :: (ServiceContext, Hc.Manager) -> Mp.Map Text Text -> Text -> IO (Either String [ServiceResult])
 textToImage (srvCtxt, manager) params content =
   let
-    modelID = fromMaybe "gemini-2.0-flash-preview-image-generation" $ Mp.lookup "model" params
+    modelID = fromMaybe "gemini-3.1-flash-image-preview" $ Mp.lookup "model" params
     speechReq = GenerationReqC {
       model = modelID
       , contents = [ContentC [TextPC content]]
       , generationConfig = Just $ GenerationConfigC {
           responseModalities = ["IMAGE", "TEXT"]
             , speechConfig = Nothing
+            , imageConfig =  Just $ ImageConfigC "9:16" "1K"
             }
       }
   in do
@@ -663,7 +669,8 @@ textToSpeech (srvCtxt, manager) params content =
                   }
                 }
               }
-            }
+          , imageConfig = Nothing
+        }
       }
   in do
   baseRequest <- Hc.parseRequest $ "https://generativelanguage.googleapis.com/v1beta/models/" <> unpack modelID <> ":generateContent"
