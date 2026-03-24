@@ -56,7 +56,7 @@ list_voices:
 curl https://api.elevenlabs.io/v2/voices \
      -H "xi-api-key: xi-api-key"
 
-data InvokeRequest = InvokeRequest { 
+data InvokeRequest = InvokeRequest {
     function :: UUID
   , context :: Maybe UUID
   , parameters :: Value
@@ -90,7 +90,7 @@ handleRequestFor srvCtxt request =
               putStrLn $ "Content: " <> show line
               let requestObject = Ae.object [
                     "text" Ae..= line
-                    , "model_id" Ae..= ("eleven_multilingual_v2" :: Text)
+                    , "model_id" Ae..= ("eleven_v3" :: Text)
                     ]
                   modelID = voiceID
                   outputFormat = "mp3_44100_128"
@@ -106,9 +106,9 @@ handleRequestFor srvCtxt request =
               assetEid <- Uu.nextRandom
               let
                 newAsset = S3.prepareNewAsset assetEid "ElevenLabs" "audio/mp3"
-              rezA <- S3.insertNewAsset srvCtxt.dbPool srvCtxt.s3Conn manager request newAsset 
+              rezA <- S3.insertNewAsset srvCtxt.dbPool srvCtxt.s3Conn manager request newAsset
               case rezA of
-                Left err -> 
+                Left err ->
                   let
                     errMsg = "@[handleRequestFor] Error processing request: " <> err
                   in do
