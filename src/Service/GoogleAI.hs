@@ -550,7 +550,7 @@ handleRequestFor (srvCtxt, manager) request =
     "text_to_image" ->
       case eiParams of
         Left err ->
-          pure $ Left "@[handleRequestFor] GoogleAI.text_to_speech err: need 'voice' and 'model' parameters."
+          pure $ Left "@[handleRequestFor] GoogleAI.text_to_image err: need 'model' parameters."
         Right (params, content) ->
           textToImage (srvCtxt, manager) params content
     "text_to_video" ->
